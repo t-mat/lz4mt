@@ -1,17 +1,19 @@
 ﻿# lz4mt
 
-lz4mt is platform independent, multi-threading, [lz4 stream v1.4](https://docs.google.com/document/d/1gZbUoLw5hRzJ5Q71oPRN6TO4cRMTZur60qip-TE7BhQ/edit?pli=1) implementation in C++11.
+lz4mt is platform independent, multi-threading, 
+[lz4 stream v1.4](https://docs.google.com/document/d/1gZbUoLw5hRzJ5Q71oPRN6TO4cRMTZur60qip-TE7BhQ/edit?pli=1)
+implementation in C++11.
 
-## How to compile (MSVC2012)
+## Building for MSVC2012 (Visual Studio Express 2012 for Windows Desktop)
 
  - Open `platform_msvc2012/lz4mt.sln`
- - Select platform and configuration.
+ - Select platform (Win32 or x64) and configuration (Debug or Release).
  - Press F7 (build)
 
-## How to compile (Linux)
+## Building for Linux
 
  - Just run `make`.
- - `./lz4mt` will be build.
+ - `./lz4mt` will be created.
 
 ## Restriction
 
