@@ -5,6 +5,10 @@
 #include <map>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#include <io.h>			// _setmode
+#include <fcntl.h>		// _O_BINARY
+#endif
 #include "lz4.h"
 #include "lz4hc.h"
 #include "lz4mt.h"
@@ -24,7 +28,33 @@ FILE* fopen_(const char* filename, const char* mode) {
 
 void fclose_(FILE* fp) {
 	if(fp) {
-		::fclose(fp);
+		if(fp != stdin && fp != stdout) {
+			::fclose(fp);
+		}
+	}
+}
+
+FILE* getStdin() {
+#ifdef _WIN32
+	_setmode(_fileno(stdin), _O_BINARY);
+#endif
+	return stdin;
+}
+
+FILE* getStdout() {
+#ifdef _WIN32
+	_setmode(_fileno(stdout), _O_BINARY);
+#endif
+	return stdout;
+}
+
+bool fileExist(const std::string& filename) {
+	if("stdin" == filename || "stdout" == filename) {
+		return false;
+	} else {
+		FILE* fp = fopen_(filename.c_str(), "rb");
+		fclose_(fp);
+		return nullptr != fp;
 	}
 }
 
@@ -37,13 +67,23 @@ FILE* writeCtx(const Lz4MtContext* ctx) {
 }
 
 bool openIstream(Lz4MtContext* ctx, const std::string& filename) {
-	auto* fp = fopen_(filename.c_str(), "rb");
+	FILE* fp = nullptr;
+	if("stdin" == filename) {
+		fp = getStdin();
+	} else {
+		fp = fopen_(filename.c_str(), "rb");
+	}
 	ctx->readCtx = reinterpret_cast<void*>(fp);
 	return nullptr != fp;
 }
 
 bool openOstream(Lz4MtContext* ctx, const std::string& filename) {
-	auto* fp = fopen_(filename.c_str(), "wb");
+	FILE* fp = nullptr;
+	if("stdout" == filename) {
+		fp = getStdout();
+	} else {
+		fp = fopen_(filename.c_str(), "wb");
+	}
 	ctx->writeCtx = reinterpret_cast<void*>(fp);
 	return nullptr != fp;
 }
@@ -108,12 +148,12 @@ const char* LZ4MT_EXTENSION = ".lz4";
 void usage() {
 	std::cerr <<
 		"usage :\n"
-		"  lz4_mt [switch...] <input> <output>\n"
+		"  lz4_mt [switch...] <input> [output]\n"
 		"switch :\n"
 		"  -c0/-c  : Compress (lz4) (default)\n"
 		"  -c1/-hc : Compress (lz4hc)\n"
 		"  -d      : Decompress\n"
-//		"  -y      : Overwrite without prompting\n"
+		"  -y      : Overwrite without prompting\n"
 		"  -s      : Single thread mode\n"
 		"  -m      : Multi thread mode (default)\n"
 		"  -h      : help\n"
@@ -146,6 +186,7 @@ int main(int argc, char* argv[]) {
 	int mode = LZ4MT_MODE_DEFAULT;
 	string inpFilename;
 	string outFilename;
+	bool overwrite = false;
 
 	map<string, function<void ()>> opts;
 	opts["-c0"] =
@@ -153,6 +194,7 @@ int main(int argc, char* argv[]) {
 	opts["-c1"] =
 	opts["-hc"] = [&] { compMode = CompMode::COMPRESS_C1; };
 	opts["-d" ] = [&] { compMode = CompMode::DECOMPRESS; };
+	opts["-y" ] = [&] { overwrite = true; };
 	opts["-s" ] = [&] { mode |= LZ4MT_MODE_SEQUENTIAL; };
 	opts["-m" ] = [&] { mode &= ~LZ4MT_MODE_SEQUENTIAL; };
 	opts["-B4"] = [&] { sd.bd.blockMaximumSize = 4; };
@@ -208,6 +250,18 @@ int main(int argc, char* argv[]) {
 	if(!openIstream(&ctx, inpFilename)) {
 		cerr << "ERROR: Can't open input file [" << inpFilename << "]\n";
 		exit(EXIT_FAILURE);
+	}
+
+	if(!overwrite && fileExist(outFilename)) {
+		int ch = 0;
+		if("stdin" != inpFilename) {
+			cerr << "Overwrite ? (y/n) : ";
+			ch = cin.get();
+		}
+		if(ch != 'y') {
+			cerr << "Abort: " << outFilename << " already exists\n";
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	if(!openOstream(&ctx, outFilename)) {
