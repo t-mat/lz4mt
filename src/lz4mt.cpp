@@ -263,24 +263,60 @@ lz4mtResultToString(Lz4MtResult result)
 {
 	const char* s = "???";
 	switch(result) {
-	case LZ4MT_RESULT_OK:										s = "OK"; break;
-	case LZ4MT_RESULT_ERROR:									s = "ERROR"; break;
-	case LZ4MT_RESULT_INVALID_MAGIC_NUMBER:						s = "INVALID_MAGIC_NUMBER"; break;
-	case LZ4MT_RESULT_INVALID_HEADER:							s = "INVALID_HEADER"; break;
-	case LZ4MT_RESULT_PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET:	s = "PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET"; break;
-	case LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET:	s = "BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET"; break;
-	case LZ4MT_RESULT_INVALID_VERSION:							s = "INVALID_VERSION"; break;
-	case LZ4MT_RESULT_INVALID_HEADER_CHECKSUM:					s = "INVALID_HEADER_CHECKSUM"; break;
-	case LZ4MT_RESULT_INVALID_BLOCK_MAXIMUM_SIZE:				s = "INVALID_BLOCK_MAXIMUM_SIZE"; break;
-	case LZ4MT_RESULT_CANNOT_WRITE_HEADER:						s = "CANNOT_WRITE_HEADER"; break;
-	case LZ4MT_RESULT_CANNOT_WRITE_EOS:							s = "CANNOT_WRITE_EOS"; break;
-	case LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM:				s = "CANNOT_WRITE_STREAM_CHECKSUM"; break;
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE:					s = "CANNOT_READ_BLOCK_SIZE"; break;
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA:					s = "CANNOT_READ_BLOCK_DATA"; break;
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM:				s = "CANNOT_READ_BLOCK_CHECKSUM"; break;
-	case LZ4MT_RESULT_CANNOT_READ_STREAM_CHECKSUM:				s = "CANNOT_READ_STREAM_CHECKSUM"; break;
-	case LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH:					s = "STREAM_CHECKSUM_MISMATCH"; break;
-	default:													s = "Unknown code";	break;
+	case LZ4MT_RESULT_OK:
+		s = "OK";
+		break;
+	case LZ4MT_RESULT_ERROR:
+		s = "ERROR";
+		break;
+	case LZ4MT_RESULT_INVALID_MAGIC_NUMBER:
+		s = "INVALID_MAGIC_NUMBER";
+		break;
+	case LZ4MT_RESULT_INVALID_HEADER:
+		s = "INVALID_HEADER";
+		break;
+	case LZ4MT_RESULT_PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET:
+		s = "PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET";
+		break;
+	case LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET:
+		s = "BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET";
+		break;
+	case LZ4MT_RESULT_INVALID_VERSION:
+		s = "INVALID_VERSION";
+		break;
+	case LZ4MT_RESULT_INVALID_HEADER_CHECKSUM:
+		s = "INVALID_HEADER_CHECKSUM";
+		break;
+	case LZ4MT_RESULT_INVALID_BLOCK_MAXIMUM_SIZE:
+		s = "INVALID_BLOCK_MAXIMUM_SIZE";
+		break;
+	case LZ4MT_RESULT_CANNOT_WRITE_HEADER:
+		s = "CANNOT_WRITE_HEADER";
+		break;
+	case LZ4MT_RESULT_CANNOT_WRITE_EOS:
+		s = "CANNOT_WRITE_EOS";
+		break;
+	case LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM:
+		s = "CANNOT_WRITE_STREAM_CHECKSUM";
+		break;
+	case LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE:
+		s = "CANNOT_READ_BLOCK_SIZE";
+		break;
+	case LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA:
+		s = "CANNOT_READ_BLOCK_DATA";
+		break;
+	case LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM:
+		s = "CANNOT_READ_BLOCK_CHECKSUM";
+		break;
+	case LZ4MT_RESULT_CANNOT_READ_STREAM_CHECKSUM:
+		s = "CANNOT_READ_STREAM_CHECKSUM";
+		break;
+	case LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH:
+		s = "STREAM_CHECKSUM_MISMATCH";
+		break;
+	default:
+		s = "Unknown code";
+		break;
 	}
 	return s;
 }
@@ -343,12 +379,14 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 
 		const auto* srcPtr = src->data();
 		auto* cmpPtr = dst.data();
-		const auto cmpSize = ctx->compress(srcPtr, cmpPtr, srcSize, srcSize);
+		const auto cmpSize = ctx->compress(srcPtr, cmpPtr
+										   , srcSize, srcSize);
 
 		const bool incompressible = (cmpSize <= 0);
 		auto* cPtr  = incompressible ? srcPtr  : cmpPtr;
 		auto  cSize = incompressible ? srcSize : cmpSize;
-		const auto hash = nBlockCheckSum ? XXH32(cPtr, cSize, LZ4S_CHECKSUM_SEED) : 0;
+		const auto hash = nBlockCheckSum ? XXH32(cPtr, cSize
+												 , LZ4S_CHECKSUM_SEED) : 0;
 
 		if(i > 0) {
 			futures[i-1].wait();
@@ -374,7 +412,8 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 		auto src = make_shared<Buffer>(nBlockMaximumSize);
 		auto* srcPtr = src->data();
 		const auto srcSize = src->size();
-		const auto readSize = ctx->read(ctx, srcPtr, static_cast<int>(srcSize));
+		const auto readSize = ctx->read(ctx, srcPtr
+										, static_cast<int>(srcSize));
 
 		if(streamChecksum) {
 			xxhStream.update(srcPtr, readSize);
@@ -488,7 +527,8 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 
 		const auto sumSize   = static_cast<int>(p - sumBegin);
 		const auto calHash32 = XXH32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED);
-		const auto calHash   = static_cast<char>(getCheckBits_FromXXH(calHash32));
+		const auto calHash   = static_cast<char>(
+								getCheckBits_FromXXH(calHash32));
 		const auto srcHash   = *p++;
 
 		assert(p <= end(d));
@@ -498,17 +538,20 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			break;
 		}
 
-		const auto nBlockMaximumSize = getBlocksize(sd->bd.blockMaximumSize);
+		const auto nBlockMaximumSize = getBlocksize(
+										sd->bd.blockMaximumSize);
 		const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
 		const bool streamChecksum    = 0 != sd->flg.streamChecksum;
-		const bool singleThread      = 0 != (ctx->mode & LZ4MT_MODE_SEQUENTIAL);
+		const bool singleThread      = 0 !=
+										(ctx->mode & LZ4MT_MODE_SEQUENTIAL);
 
 		Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 		mutex xxhMutex;
 		vector<future<Lz4MtResult>> futures;
 
 		auto f = [=, &futures, &xxhStream, &xxhMutex, &quit] (
-			int i, BufferPtr src, bool incompressible, uint32_t blockChecksum
+			int i, BufferPtr src
+			, bool incompressible, uint32_t blockChecksum
 		) {
 			if(error(ctx) || quit) {
 				return LZ4MT_RESULT_OK;
@@ -517,7 +560,8 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			const auto* srcPtr = src->data();
 			const auto srcSize = static_cast<int>(src->size());
 			if(nBlockCheckSum
-			   && XXH32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED) != blockChecksum
+			   && XXH32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED)
+			      != blockChecksum
 			) {
 				quit = true;
 				return LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH;
@@ -566,10 +610,13 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 
 			const auto incompMask     = (1 << 31);
 			const bool incompressible = 0 != (srcBits & incompMask);
-			const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
+			const auto srcSize        = static_cast<int>(
+										  srcBits & ~incompMask);
 
 			auto src = make_shared<Buffer>(srcSize);
-			if(srcSize != ctx->read(ctx, src->data(), srcSize) || error(ctx)) {
+			if(srcSize != ctx->read(ctx, src->data(), srcSize)
+			   || error(ctx)
+			) {
 				quit = true;
 				setResult(ctx, LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA);
 				break;
