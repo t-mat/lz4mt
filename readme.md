@@ -15,12 +15,6 @@ implementation in C++11.
  - Just run `make`.
  - `./lz4mt` will be created.
 
-## Restriction
-
- - Some function is not implemented yet
-   - `-y`: force overwrite.
-   - stdin, stdout stream mode.
-
 ## See also
 
  - [lz4 Extremely Fast Compression algorithm](https://code.google.com/p/lz4/)
