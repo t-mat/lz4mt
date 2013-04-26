@@ -1,5 +1,7 @@
 Win32/
 x64/
+.tmp/
 *.opensdf
 *.sdf
 *.suo
+*.user

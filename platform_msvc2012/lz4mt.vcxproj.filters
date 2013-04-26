@@ -17,6 +17,7 @@
     </ClCompile>
     <ClCompile Include="..\src\lz4mt.cpp" />
     <ClCompile Include="..\src\main.cpp" />
+    <ClCompile Include="..\src\lz4mt_benchmark.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\lz4\lz4.h">
@@ -29,5 +30,6 @@
       <Filter>lz4</Filter>
     </ClInclude>
     <ClInclude Include="..\src\lz4mt.h" />
+    <ClInclude Include="..\src\lz4mt_benchmark.h" />
   </ItemGroup>
 </Project>

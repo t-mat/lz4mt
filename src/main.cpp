@@ -5,14 +5,17 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <sys/types.h>
+#include <sys/stat.h>
 #ifdef _WIN32
-#include <io.h>			// _setmode
-#include <fcntl.h>		// _O_BINARY
+#include <io.h>
+#include <fcntl.h>
 #endif
 #include "lz4.h"
 #include "lz4hc.h"
+#include "xxhash.h"
 #include "lz4mt.h"
-
+#include "lz4mt_benchmark.h"
 
 namespace Cstdio {
 
@@ -138,6 +141,25 @@ int write(const Lz4MtContext* ctx, const void* source, int sourceSize) {
 	}
 }
 
+uint64_t getFilesize(const std::string& fileanme) {
+	int r = 0;
+#if defined(_MSC_VER)
+	struct _stat64 s = { 0 };
+	r = _stat64(fileanme.c_str(), &s);
+	auto S_ISREG = [](decltype(s.st_mode) x) {
+		return (x & S_IFMT) == S_IFREG;
+	};
+#else
+	struct stat s = { 0 };
+	r = _stat64(fileanme.c_str(), &s);
+#endif
+	if(r || !S_ISREG(s.st_mode)) {
+		return 0;
+	} else {
+		return static_cast<uint64_t>(s.st_size);
+	}
+}
+
 } // namespace Cstdio
 
 
@@ -145,29 +167,30 @@ namespace {
 
 const char* LZ4MT_EXTENSION = ".lz4";
 
-void usage() {
-	std::cerr <<
-		"usage :\n"
-		"  lz4_mt [switch...] <input> [output]\n"
-		"switch :\n"
-		"  -c0/-c  : Compress (lz4) (default)\n"
-		"  -c1/-hc : Compress (lz4hc)\n"
-		"  -d      : Decompress\n"
-		"  -y      : Overwrite without prompting\n"
-		"  -s      : Single thread mode\n"
-		"  -m      : Multi thread mode (default)\n"
-		"  -h      : help\n"
-//		"input     : can be 'stdin' (pipe) or a filename\n"
-//		"output    : can be 'stdout'(pipe) or a filename or 'null'\n"
-		"\n"
-//		" -t       : test compressed file \n"
-		" -B#      : Block size [4-7](default : 7)\n"
-		" -x       : enable block checksum (default:disabled)\n"
-		" -nx      : disable stream checksum (default:enabled)\n"
-//		" -b#      : benchmark files, using # [0-1] compression level\n"
-//		" -i#      : iteration loops [1-9](default : 3), benchmark mode only\n"
-	;
-}
+const char* usage = 
+	"usage :\n"
+	"  lz4mt [switch...] <input> [output]\n"
+	"switch :\n"
+	"  -c0/-c  : Compress (lz4) (default)\n"
+	"  -c1/-hc : Compress (lz4hc)\n"
+	"  -d      : Decompress\n"
+	"  -y      : Overwrite without prompting\n"
+	"  -s      : Single thread mode\n"
+	"  -m      : Multi thread mode (default)\n"
+	"  -H      : Help (this text + advanced options)\n"
+	"  input   : can be 'stdin' (pipe) or a filename\n"
+	"  output  : can be 'stdout'(pipe) or a filename\n"// "or 'null'\n"
+;
+
+const char* usage_advanced =
+	"\nAdvanced options :\n"
+//	" -t       : test compressed file \n"
+	" -B#      : Block size [4-7](default : 7)\n"
+	" -x       : enable block checksum (default:disabled)\n"
+	" -nx      : disable stream checksum (default:enabled)\n"
+	" -b#      : benchmark files, using # [0-1] compression level\n"
+	" -i#      : iteration loops [1-9](default : 3), benchmark mode only\n"
+;
 
 } // anonymous namespace
 
@@ -187,6 +210,7 @@ int main(int argc, char* argv[]) {
 	string inpFilename;
 	string outFilename;
 	bool overwrite = false;
+	Lz4Mt::Benchmark benchmark;
 
 	map<string, function<void ()>> opts;
 	opts["-c0"] =
@@ -197,14 +221,37 @@ int main(int argc, char* argv[]) {
 	opts["-y" ] = [&] { overwrite = true; };
 	opts["-s" ] = [&] { mode |= LZ4MT_MODE_SEQUENTIAL; };
 	opts["-m" ] = [&] { mode &= ~LZ4MT_MODE_SEQUENTIAL; };
-	opts["-B4"] = [&] { sd.bd.blockMaximumSize = 4; };
-	opts["-B5"] = [&] { sd.bd.blockMaximumSize = 5; };
-	opts["-B6"] = [&] { sd.bd.blockMaximumSize = 6; };
-	opts["-B7"] = [&] { sd.bd.blockMaximumSize = 7; };
+	opts["--help"] = opts["-h" ] = opts["/?" ] = [&] {
+		cerr << usage;
+		exit(EXIT_FAILURE);
+	};
+	opts["-H" ] = [&] {
+		cerr << usage << usage_advanced;
+		exit(EXIT_FAILURE);
+	};
+	for(int i = 4; i <= 7; ++i) {
+		opts[string("-B") + to_string(i)] = [&, i] {
+			sd.bd.blockMaximumSize = static_cast<char>(i);
+		};
+	}
 	opts["-x" ] = [&] { sd.flg.blockChecksum = 1; };
 	opts["-nx"] = [&] { sd.flg.streamChecksum = 0; };
-	opts["--help"] = opts["-h" ] = opts["-H" ] =
-	opts["/?" ] = [&] { usage(); exit(EXIT_FAILURE); };
+	for(int i = 0; i <= 1; ++i) {
+		opts["-b" + to_string(i)] = [&, i] {
+			if(i == 0) {
+				compMode = CompMode::COMPRESS_C0;
+			} else {
+				compMode = CompMode::COMPRESS_C1;
+			}
+			benchmark.enable = true;
+		};
+	}
+	for(int i = 1; i <= 9; ++i) {
+		opts[string("-i") + to_string(i)] = [&, i] {
+			benchmark.nIter = i;
+			benchmark.enable = true;
+		};
+	}
 
 	for(int iarg = 1; iarg < argc; ++iarg) {
 		const auto a = string(argv[iarg]);
@@ -214,6 +261,8 @@ int main(int argc, char* argv[]) {
 		} else if(a[0] == '-') {
 			cerr << "ERROR: bad switch [" << a << "]\n";
 			exit(EXIT_FAILURE);
+		} else if(benchmark.enable) {
+			benchmark.files.push_back(a);
 		} else if(inpFilename.empty()) {
 			inpFilename = a;
 		} else if(outFilename.empty()) {
@@ -222,6 +271,24 @@ int main(int argc, char* argv[]) {
 			cerr << "ERROR: Bad argument [" << a << "]\n";
 			exit(EXIT_FAILURE);
 		}
+	}
+
+	Lz4MtContext ctx = lz4mtInitContext();
+	ctx.mode	 = static_cast<Lz4MtMode>(mode);
+	ctx.read	 = read;
+	ctx.readSeek = readSeek;
+	ctx.readEof	 = readEof;
+	ctx.write	 = write;
+	if(CompMode::COMPRESS_C1 == compMode) {
+		ctx.compress = LZ4_compressHC_limitedOutput;
+	}
+
+	if(benchmark.enable) {
+		benchmark.openIstream	= openIstream;
+		benchmark.closeIstream	= closeIstream;
+		benchmark.getFilesize	= getFilesize;
+		benchmark.measure(ctx, sd);
+		exit(EXIT_SUCCESS);
 	}
 
 	if(inpFilename.empty()) {
@@ -233,19 +300,16 @@ int main(int argc, char* argv[]) {
 		if(   CompMode::COMPRESS_C0 == compMode
 		   || CompMode::COMPRESS_C1 == compMode
 		) {
-			outFilename = inpFilename + LZ4MT_EXTENSION;
+			if("stdin" == inpFilename) {
+				outFilename = "stdout";
+			} else {
+				outFilename = inpFilename + LZ4MT_EXTENSION;
+			}
 		} else {
 			cerr << "ERROR: No output filename\n";
 			exit(EXIT_FAILURE);
 		}
 	}
-
-	Lz4MtContext ctx = lz4mtInitContext();
-	ctx.mode	 = static_cast<Lz4MtMode>(mode);
-	ctx.read	 = read;
-	ctx.readSeek = readSeek;
-	ctx.readEof	 = readEof;
-	ctx.write	 = write;
 
 	if(!openIstream(&ctx, inpFilename)) {
 		cerr << "ERROR: Can't open input file [" << inpFilename << "]\n";
@@ -255,7 +319,7 @@ int main(int argc, char* argv[]) {
 	if(!overwrite && fileExist(outFilename)) {
 		int ch = 0;
 		if("stdin" != inpFilename) {
-			cerr << "Overwrite ? (y/n) : ";
+			cerr << "Overwrite [y/N]? ";
 			ch = cin.get();
 		}
 		if(ch != 'y') {
@@ -282,11 +346,7 @@ int main(int argc, char* argv[]) {
 		break;
 
 	case CompMode::COMPRESS_C0:
-		e = lz4mtCompress(&ctx, &sd);
-		break;
-
 	case CompMode::COMPRESS_C1:
-		ctx.compress = LZ4_compressHC_limitedOutput;
 		e = lz4mtCompress(&ctx, &sd);
 		break;
 	}

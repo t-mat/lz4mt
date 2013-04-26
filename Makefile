@@ -46,11 +46,15 @@ setup:
 	-mkdir $(OBJDIR)
 
 clean:
+	-rm *.linux.c*
+	-rm *.linux.d*
 	-rm -f $(OBJDIR)/*
 	-rmdir $(OBJDIR)
 	-rm -f $(OUTPUT)
 
 test:
+	-rm -f *.linux.c*
+	-rm -f *.linux.d*
 	./$(OUTPUT) -c0 $(ENWIK) $(ENWIK).linux.c0
 	./$(OUTPUT) -c1 $(ENWIK) $(ENWIK).linux.c1
 	./$(OUTPUT) -d $(ENWIK).linux.c0 $(ENWIK).linux.d0
