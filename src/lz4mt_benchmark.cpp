@@ -104,7 +104,7 @@ int Benchmark::measure(
 		std::vector<ChunkParamters> chunkParameterss;
 
 		size_t chunkSize	= (1 << (8 + (2 * sd.bd.blockMaximumSize)));
-		auto maxChunkSize	= ctx->compressBound(chunkSize);
+		auto maxChunkSize	= ctx->compressBound(static_cast<int>(chunkSize));
 		auto nChunk			= (inpBuf.size() / chunkSize) + 1;
 
 		{
