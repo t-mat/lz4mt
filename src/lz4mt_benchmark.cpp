@@ -74,10 +74,10 @@ int Benchmark::measure(
 				std::cerr << "Pb opening " << filename << "\n";
 				return 11;
 			}
-			inpBuf.resize(getFilesize(filename));
+			inpBuf.resize(static_cast<size_t>(getFilesize(filename)));
 
 			std::cerr << "Loading " << filename << "...        \r";
-			auto readSize = ctx->read(ctx, inpBuf.data()
+			size_t readSize = ctx->read(ctx, inpBuf.data()
 									  , static_cast<int>(inpBuf.size()));
 			closeIstream(ctx);
 
@@ -103,7 +103,7 @@ int Benchmark::measure(
 		};
 		std::vector<ChunkParamters> chunkParameterss;
 
-		auto chunkSize		= (1 << (8 + (2 * sd.bd.blockMaximumSize)));
+		size_t chunkSize	= (1 << (8 + (2 * sd.bd.blockMaximumSize)));
 		auto maxChunkSize	= ctx->compressBound(chunkSize);
 		auto nChunk			= (inpBuf.size() / chunkSize) + 1;
 
