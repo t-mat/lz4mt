@@ -6,13 +6,12 @@ implementation in C++11.
 
 ## Building for MSVC2012 (Visual Studio Express 2012 for Windows Desktop)
 
- - Open `platform_msvc2012/lz4mt.sln`
- - Select platform (Win32 or x64) and configuration (Debug or Release).
- - Press F7 (build)
+ - Run `build.bat`
+ - Executable file will be created in `platform_msvc2012/`
 
 ## Building for Linux
 
- - Just run `make`.
+ - Run `make`.
  - `./lz4mt` will be created.
 
 ## See also

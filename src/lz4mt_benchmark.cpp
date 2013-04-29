@@ -68,14 +68,11 @@ int Benchmark::measure(
 
 	const auto TIMELOOP = 2.0;	// sec
 	for(const auto& filename : files) {
-		vector<char> inpBuf;
-		{
-			if(!openIstream(ctx, filename)) {
-				std::cerr << "Pb opening " << filename << "\n";
-				return 11;
-			}
-			inpBuf.resize(static_cast<size_t>(getFilesize(filename)));
-
+		vector<char> inpBuf(static_cast<size_t>(getFilesize(filename)));
+		if(!openIstream(ctx, filename)) {
+			std::cerr << "Pb opening " << filename << "\n";
+			return 11;
+		} else {
 			std::cerr << "Loading " << filename << "...        \r";
 			size_t readSize = ctx->read(ctx, inpBuf.data()
 									  , static_cast<int>(inpBuf.size()));
@@ -134,12 +131,46 @@ int Benchmark::measure(
 		auto minCompressionTime   = 10000000.0;
 		auto minDecompressionTime = 10000000.0;
 
-		for(int iLoop = 1, nLoop = nIter; iLoop <= nLoop; ++iLoop) {
-			auto ratio = 0.0;
+		auto b = [=, &futures, &chunkParameterss] (
+			std::function<void(ChunkParamters*)> fChunk
+		) -> double
+		{
+			auto ms0 = getSyncTime();
+			auto ms1 = ms0;
+			int loopCount = 0;
 
-			// compression
-			{
-				auto f = [=, &futures] (ChunkParamters* cp) {
+			while(getTimeSpan(ms0, ms1 = getTime()) < TIMELOOP) {
+				for(auto& e : chunkParameterss) {
+					futures[e.id] = async(launch::async, fChunk, &e);
+				}
+				for(auto& e : futures) {
+					e.wait();
+				}
+				++loopCount;
+			}
+
+			return getTimeSpan(ms0, ms1) / static_cast<double>(loopCount);
+		};
+
+		auto report = [&](int iLoop) {
+			fprintf(stderr, fmt
+				, iLoop
+				, filename.c_str()
+				, filesize
+				, cmpSize
+				, cmpSize / filesize * 100.0
+				, filesize / 1024.0 / 1024.0 / minCompressionTime
+				, filesize / 1024.0 / 1024.0 / minDecompressionTime
+			);
+		};
+
+		for(int iLoop = 1, nLoop = nIter; iLoop <= nLoop; ++iLoop) {
+			//	compression
+			for(size_t i = 0; i < outBuf.size(); ++i) {
+				outBuf[i] = static_cast<char>(i);
+			}
+			auto tComp = b(
+				[ctx, singleThread, &futures] (ChunkParamters* cp) {
 					if(singleThread && cp->id > 0) {
 						futures[cp->id-1].wait();
 					}
@@ -149,55 +180,23 @@ int Benchmark::measure(
 						, static_cast<int>(cp->inpSize)
 						, static_cast<int>(cp->outSize)
 					);
-				};
-
-				auto* out_buff = outBuf.data();
-				// warmimg up memory
-				for(size_t i = 0; i < outBuf.size(); ++i) {
-					out_buff[i] = static_cast<char>(i);
 				}
+			);
+			minCompressionTime = min(minCompressionTime, tComp);
 
-				auto ms0 = getSyncTime();
-				auto ms1 = ms0;
-				int loopCount = 0;
-
-				for(;;) {
-					for(auto& e : chunkParameterss) {
-						futures[e.id] = async(launch::async, f, &e);
-					}
-					for(auto& e : futures) {
-						e.wait();
-					}
-					ms1 = getTime();
-					if(getTimeSpan(ms0, ms1) >= TIMELOOP) {
-						break;
-					}
-					++loopCount;
-				}
-
-				auto dt = getTimeSpan(ms0, ms1) / (double) loopCount;
-				minCompressionTime = min(minCompressionTime, dt);
-
-				cmpSize = 0.0;
-				for(auto& c : chunkParameterss) {
-					cmpSize += static_cast<double>(c.cmpSize);
-				}
+			cmpSize = 0.0;
+			for(auto& c : chunkParameterss) {
+				cmpSize += static_cast<double>(c.cmpSize);
 			}
 
-			ratio = cmpSize / filesize * 100.0;
-			fprintf(stderr, fmt
-				, iLoop
-				, filename.c_str()
-				, filesize
-				, cmpSize
-				, ratio
-				, filesize / 1024.0 / 1024.0 / minCompressionTime
-				, filesize / 1024.0 / 1024.0 / minDecompressionTime
-			);
+			report(iLoop);
 
-			// decompression
-			{
-				auto f = [=, &futures] (ChunkParamters* cp) {
+			//	decompression
+			for(auto& e : inpBuf) {
+				e = 0;
+			}
+			auto tDecomp = b(
+				[ctx, singleThread, &futures] (ChunkParamters* cp) {
 					if(singleThread && cp->id > 0) {
 						futures[cp->id-1].wait();
 					}
@@ -207,44 +206,11 @@ int Benchmark::measure(
 						, static_cast<int>(cp->cmpSize)
 						, static_cast<int>(cp->inpSize)
 					);
-				};
-
-				auto* in_buff = inpBuf.data();
-				for(size_t i = 0;i < inpBuf.size(); ++i) {
-					in_buff[i] = 0;
 				}
-
-				auto ms0 = getSyncTime();
-				auto ms1 = ms0;
-				int loopCount = 0;
-
-				for(;;) {
-					for(auto& e : chunkParameterss) {
-						futures[e.id] = async(launch::async, f, &e);
-					}
-					for(auto& e : futures) {
-						e.wait();
-					}
-					ms1 = getTime();
-					if(getTimeSpan(ms0, ms1) >= TIMELOOP) {
-						break;
-					}
-					++loopCount;
-				}
-
-				auto dt = getTimeSpan(ms0, ms1) / (double) loopCount;
-				minDecompressionTime = min(minDecompressionTime, dt);
-			}
-
-			fprintf(stderr, fmt
-				, iLoop
-				, filename.c_str()
-				, filesize
-				, cmpSize
-				, ratio
-				, filesize / 1024.0 / 1024.0 / minCompressionTime
-				, filesize / 1024.0 / 1024.0 / minDecompressionTime
 			);
+			minDecompressionTime = min(minDecompressionTime, tDecomp);
+
+			report(iLoop);
 
 			const auto outHash = XXH32(
 				  inpBuf.data()
