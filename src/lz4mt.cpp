@@ -3,8 +3,6 @@
 #include <future>
 #include <mutex>
 #include <vector>
-#include "lz4.h"
-#include "lz4hc.h"
 #include "xxhash.h"
 #include "lz4mt.h"
 
@@ -231,9 +229,9 @@ lz4mtInitContext()
 	e.readEof		= nullptr;
 	e.writeCtx		= nullptr;
 	e.write			= nullptr;
-	e.compress		= LZ4_compress_limitedOutput;
-	e.compressBound	= LZ4_compressBound;
-	e.decompress	= LZ4_uncompress_unknownOutputSize;
+	e.compress		= nullptr;
+	e.compressBound	= nullptr;
+	e.decompress	= nullptr;
 	e.mode			= LZ4MT_MODE_PARALLEL;
 
 	return e;
@@ -257,6 +255,7 @@ lz4mtInitStreamDescriptor()
 
 	return e;
 }
+
 
 extern "C" const char*
 lz4mtResultToString(Lz4MtResult result)
@@ -320,6 +319,7 @@ lz4mtResultToString(Lz4MtResult result)
 	}
 	return s;
 }
+
 
 extern "C" Lz4MtResult
 lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)

@@ -274,11 +274,14 @@ int main(int argc, char* argv[]) {
 	}
 
 	Lz4MtContext ctx = lz4mtInitContext();
-	ctx.mode	 = static_cast<Lz4MtMode>(mode);
-	ctx.read	 = read;
-	ctx.readSeek = readSeek;
-	ctx.readEof	 = readEof;
-	ctx.write	 = write;
+	ctx.mode			= static_cast<Lz4MtMode>(mode);
+	ctx.read			= read;
+	ctx.readSeek		= readSeek;
+	ctx.readEof			= readEof;
+	ctx.write			= write;
+	ctx.compress		= LZ4_compress_limitedOutput;
+	ctx.compressBound	= LZ4_compressBound;
+	ctx.decompress		= LZ4_decompress_safe;
 	if(CompMode::COMPRESS_C1 == compMode) {
 		ctx.compress = LZ4_compressHC_limitedOutput;
 	}
