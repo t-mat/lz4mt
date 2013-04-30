@@ -1,9 +1,9 @@
 #include <cassert>
-#include <cstdio>
 #include <chrono>
 #include <future>
 #include <functional>
 #include <iostream>
+#include <iomanip>
 #include <map>
 #include <string>
 #include <vector>
@@ -56,58 +56,72 @@ int Benchmark::measure(
 	using namespace std;
 
 	const auto msgClearLine = [] {
-		fprintf(stderr, "\r%79s\r", "");
+		cerr << "\r" << setw(79) << " " << "\r";
 	};
 
 	const auto msgNewline = [] {
-		fprintf(stderr, "\n");
+		cerr << endl;
 	};
 
 	const auto msgErrOpening = [](const string& filename) {
-		fprintf(stderr, "Error: problem opening %s\n", filename.c_str());
+		cerr << "Error: problem opening " << filename << endl;
 	};
 
 	const auto msgLoading = [](const string& filename) {
-		fprintf(stderr, "Loading %s...\r", filename.c_str());
+		cerr << "Loading " << filename << "...\r";
+		cerr.flush();
 	};
 
 	const auto msgErrReading = [](const string& filename) {
-		fprintf(stderr, "\nError: problem reading file %s\n"
-				, filename.c_str());
+		cerr << endl
+			 << "Error: problem reading file " << filename << endl;
 	};
 
 	const auto msgErrChecksum = []
 		(const string& filename, uint32_t inpHash, uint32_t outHash)
 	{
-		fprintf(stderr
-			, "\n!!! WARNING !!! %14s : Invalid Checksum : %08x != %08x\n"
-			, filename.c_str()
-			, inpHash
-			, outHash
-		);
+		cerr << endl
+			 << "!!! WARNING !!! "
+			 << setw(14) << filename
+			 << " : Invalid Checksum : "
+			 << setfill('0') << hex
+			 << setw(8) << inpHash
+			 << " != "
+			 << setw(8) << outHash
+			 << endl << setfill(' ') << dec;
 	};
 
 	const auto msgReport = []
-		(  int iLoop
-		 , const string& filename
+		(  const string& filename
+		 , int iLoop
 		 , size_t filesize
 		 , size_t cmpSize
 		 , double minCompressionTime
 		 , double minDecompressionTime
 		)
 	{
-		const auto* fmt = "%1i-%-14.14s :%10.0f ->%10.0f (%6.2f%%)"
-						  ",%7.1f MiB/s, %7.1f MiB/s\r";
+		cerr << iLoop << '-'
+			 << setw(14) << left << filename
+			 << " :"
+			 << setw(10) << right << filesize
+			 << " ->"
+			 << setw(10) << cmpSize;
 
-		fprintf(stderr, fmt
-			, iLoop
-			, filename.c_str()
-			, (double) (filesize)
-			, (double) (cmpSize)
-			, (double) (cmpSize * 100.0 / filesize)
-			, (double) (filesize / 1024.0 / 1024.0 / minCompressionTime)
-			, (double) (filesize / 1024.0 / 1024.0 / minDecompressionTime)
-		);
+		auto dFilesize = static_cast<double>(filesize);
+		auto dFilesizeMib = dFilesize / 1024.0 / 1024.0;
+
+		cerr.precision(2);
+		cerr << fixed
+			 << " ("
+			 << setw(6) << static_cast<double>(cmpSize) * 100.0 / dFilesize
+			 << "%),";
+
+		cerr.precision(1);
+		cerr << setw(7) << dFilesizeMib / minCompressionTime << " MiB/s, "
+			 << setw(7) << dFilesizeMib / minDecompressionTime << " MiB/s"
+			 << "\r";
+
+		cerr.flush();
 	};
 
 	auto* ctx = &cx;
@@ -200,7 +214,7 @@ int Benchmark::measure(
 		auto minDecTime = 10000000.0;
 		size_t cmpSize = 0;
 		for(int iLoop = 1, nLoop = nIter; iLoop <= nLoop; ++iLoop) {
-			msgReport(iLoop, filename, inpBuf.size()
+			msgReport(filename, iLoop, inpBuf.size()
 					  , cmpSize, minCmpTime, minDecTime);
 
 			// compression
@@ -229,7 +243,7 @@ int Benchmark::measure(
 				}
 			}
 
-			msgReport(iLoop, filename, inpBuf.size()
+			msgReport(filename, iLoop, inpBuf.size()
 					  , cmpSize, minCmpTime, minDecTime);
 
 			// decompression
@@ -251,7 +265,7 @@ int Benchmark::measure(
 			);
 			minDecTime = min(minDecTime, decTime);
 
-			msgReport(iLoop, filename, inpBuf.size()
+			msgReport(filename, iLoop, inpBuf.size()
 					  , cmpSize, minCmpTime, minDecTime);
 
 			const auto outHash =
@@ -271,7 +285,7 @@ int Benchmark::measure(
 	}
 
 	if(!files.empty()) {
-		msgReport(0, "  TOTAL", totalFileSize, totalCompressSize
+		msgReport("  TOTAL", 0, totalFileSize, totalCompressSize
 				  , totalCompressTime, totalDecompressTime);
 		msgNewline();
 	}
