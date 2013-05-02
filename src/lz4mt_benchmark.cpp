@@ -162,7 +162,8 @@ int Benchmark::measure(
 
 		const auto inpHash =
 			XXH32(inpBuf.data(), static_cast<int>(inpBuf.size()), 0);
-		const size_t chunkSize	= (1 << (8 + (2 * sd.bd.blockMaximumSize)));
+		const auto chunkSize =
+				(size_t(1) << (8 + (2 * sd.bd.blockMaximumSize)));
 		const auto nChunk		= (inpBuf.size() / chunkSize) + 1;
 		const auto maxChunkSize	=
 			static_cast<size_t>(
