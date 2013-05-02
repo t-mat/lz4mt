@@ -211,8 +211,8 @@ int Benchmark::measure(
 			return getTimeSpan(t0, t1) / static_cast<double>(loopCount);
 		};
 
-		auto minCmpTime = 10000000.0;
-		auto minDecTime = 10000000.0;
+		auto minCmpTime = DBL_MAX;
+		auto minDecTime = DBL_MAX;
 		size_t cmpSize = 0;
 		for(int iLoop = 1, nLoop = nIter; iLoop <= nLoop; ++iLoop) {
 			msgReport(filename, iLoop, inpBuf.size()
