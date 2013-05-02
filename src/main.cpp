@@ -39,14 +39,14 @@ void fclose_(FILE* fp) {
 
 FILE* getStdin() {
 #ifdef _WIN32
-	_setmode(_fileno(stdin), _O_BINARY);
+	(void) _setmode(_fileno(stdin), _O_BINARY);
 #endif
 	return stdin;
 }
 
 FILE* getStdout() {
 #ifdef _WIN32
-	_setmode(_fileno(stdout), _O_BINARY);
+	(void) _setmode(_fileno(stdout), _O_BINARY);
 #endif
 	return stdout;
 }
