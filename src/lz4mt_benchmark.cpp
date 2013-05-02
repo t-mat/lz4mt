@@ -23,7 +23,7 @@ TimePoint getTime() {
 TimePoint getSyncTime() {
 	const auto t0 = getTime();
 	for(;;) {
-		auto t = getTime();
+		const auto t = getTime();
 		if(t0 != t) {
 			return t;
 		}
@@ -107,8 +107,8 @@ int Benchmark::measure(
 			 << " ->"
 			 << setw(10) << cmpSize;
 
-		auto dFilesize = static_cast<double>(filesize);
-		auto dFilesizeMib = dFilesize / 1024.0 / 1024.0;
+		const auto dFilesize = static_cast<double>(filesize);
+		const auto dFilesizeMib = dFilesize / 1024.0 / 1024.0;
 
 		cerr.precision(2);
 		cerr << fixed
@@ -176,7 +176,7 @@ int Benchmark::measure(
 		{
 			auto r = inpBuf.size();
 			for(auto& e : chunks) {
-				auto i = static_cast<int>(&e - chunks.data());
+				const auto i = static_cast<int>(&e - chunks.data());
 				e.id		= i;
 				e.inpPtr	= &inpBuf[i * chunkSize];
 				e.inpSize	= r > chunkSize ? chunkSize : r;
@@ -190,7 +190,7 @@ int Benchmark::measure(
 
 		vector<future<void>> futures(chunks.size());
 
-		auto b = [=, &futures, &chunks]
+		const auto b = [=, &futures, &chunks]
 			(function<void(Chunk*)> fChunk)
 		{
 			const auto t0 = getSyncTime();
@@ -221,7 +221,7 @@ int Benchmark::measure(
 			for(size_t i = 0; i < outBuf.size(); ++i) {
 				outBuf[i] = static_cast<char>(i);
 			}
-			auto cmpTime = b(
+			const auto cmpTime = b(
 				[ctx, singleThread, &futures] (Chunk* cp) {
 					if(singleThread && cp->id > 0) {
 						futures[cp->id-1].wait();
@@ -238,7 +238,7 @@ int Benchmark::measure(
 
 			if(1 == iLoop) {
 				cmpSize = 0;
-				for(auto& c : chunks) {
+				for(const auto& c : chunks) {
 					cmpSize += c.cmpSize;
 				}
 			}
@@ -250,7 +250,7 @@ int Benchmark::measure(
 			for(auto& e : inpBuf) {
 				e = 0;
 			}
-			auto decTime = b(
+			const auto decTime = b(
 				[ctx, singleThread, &futures] (Chunk* cp) {
 					if(singleThread && cp->id > 0) {
 						futures[cp->id-1].wait();
