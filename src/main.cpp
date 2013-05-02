@@ -109,7 +109,9 @@ int read(const Lz4MtContext* ctx, void* dest, int destSize) {
 	}
 }
 
-int readSkippable(const Lz4MtContext* ctx, uint32_t /*magicNumber*/, size_t size) {
+int readSkippable(const Lz4MtContext* ctx
+				  , uint32_t /*magicNumber*/, size_t size)
+{
 	if(auto* fp = readCtx(ctx)) {
 		return ::fseek(fp, static_cast<long>(size), SEEK_CUR);
 	} else {
@@ -189,7 +191,8 @@ const char* usage_advanced =
 	" -x       : enable block checksum (default:disabled)\n"
 	" -nx      : disable stream checksum (default:enabled)\n"
 	" -b#      : benchmark files, using # [0-1] compression level\n"
-	" -i#      : iteration loops [1-9](default : 3), benchmark mode only\n"
+	" -i#      : iteration loops [1-9](default : 3), benchmark mode"
+	             " only\n"
 ;
 
 } // anonymous namespace
@@ -197,7 +200,6 @@ const char* usage_advanced =
 
 int main(int argc, char* argv[]) {
 	using namespace Cstdio;
-	using namespace std;
 
 	enum class CompMode {
 		  DECOMPRESS
@@ -207,12 +209,12 @@ int main(int argc, char* argv[]) {
 
 	Lz4MtStreamDescriptor sd = lz4mtInitStreamDescriptor();
 	int mode = LZ4MT_MODE_DEFAULT;
-	string inpFilename;
-	string outFilename;
+	std::string inpFilename;
+	std::string outFilename;
 	bool overwrite = false;
 	Lz4Mt::Benchmark benchmark;
 
-	map<string, function<void ()>> opts;
+	std::map<std::string, std::function<void ()>> opts;
 	opts["-c0"] =
 	opts["-c" ] = [&] { compMode = CompMode::COMPRESS_C0; };
 	opts["-c1"] =
@@ -222,22 +224,22 @@ int main(int argc, char* argv[]) {
 	opts["-s" ] = [&] { mode |= LZ4MT_MODE_SEQUENTIAL; };
 	opts["-m" ] = [&] { mode &= ~LZ4MT_MODE_SEQUENTIAL; };
 	opts["--help"] = opts["-h" ] = opts["/?" ] = [&] {
-		cerr << usage;
+		std::cerr << usage;
 		exit(EXIT_FAILURE);
 	};
 	opts["-H" ] = [&] {
-		cerr << usage << usage_advanced;
+		std::cerr << usage << usage_advanced;
 		exit(EXIT_FAILURE);
 	};
 	for(int i = 4; i <= 7; ++i) {
-		opts[string("-B") + to_string(i)] = [&, i] {
+		opts[std::string("-B") + std::to_string(i)] = [&, i] {
 			sd.bd.blockMaximumSize = static_cast<char>(i);
 		};
 	}
 	opts["-x" ] = [&] { sd.flg.blockChecksum = 1; };
 	opts["-nx"] = [&] { sd.flg.streamChecksum = 0; };
 	for(int i = 0; i <= 1; ++i) {
-		opts["-b" + to_string(i)] = [&, i] {
+		opts["-b" + std::to_string(i)] = [&, i] {
 			if(i == 0) {
 				compMode = CompMode::COMPRESS_C0;
 			} else {
@@ -247,19 +249,19 @@ int main(int argc, char* argv[]) {
 		};
 	}
 	for(int i = 1; i <= 9; ++i) {
-		opts[string("-i") + to_string(i)] = [&, i] {
+		opts[std::string("-i") + std::to_string(i)] = [&, i] {
 			benchmark.nIter = i;
 			benchmark.enable = true;
 		};
 	}
 
 	for(int iarg = 1; iarg < argc; ++iarg) {
-		const auto a = string(argv[iarg]);
+		const auto a = std::string(argv[iarg]);
 		const auto i = opts.find(a);
 		if(opts.end() != i) {
 			i->second();
 		} else if(a[0] == '-') {
-			cerr << "ERROR: bad switch [" << a << "]\n";
+			std::cerr << "ERROR: bad switch [" << a << "]\n";
 			exit(EXIT_FAILURE);
 		} else if(benchmark.enable) {
 			benchmark.files.push_back(a);
@@ -268,7 +270,7 @@ int main(int argc, char* argv[]) {
 		} else if(outFilename.empty()) {
 			outFilename = a;
 		} else {
-			cerr << "ERROR: Bad argument [" << a << "]\n";
+			std::cerr << "ERROR: Bad argument [" << a << "]\n";
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -295,7 +297,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(inpFilename.empty()) {
-		cerr << "ERROR: No input filename\n";
+		std::cerr << "ERROR: No input filename\n";
 		exit(EXIT_FAILURE);
 	}
 
@@ -309,30 +311,32 @@ int main(int argc, char* argv[]) {
 				outFilename = inpFilename + LZ4MT_EXTENSION;
 			}
 		} else {
-			cerr << "ERROR: No output filename\n";
+			std::cerr << "ERROR: No output filename\n";
 			exit(EXIT_FAILURE);
 		}
 	}
 
 	if(!openIstream(&ctx, inpFilename)) {
-		cerr << "ERROR: Can't open input file [" << inpFilename << "]\n";
+		std::cerr << "ERROR: Can't open input file "
+				  << "[" << inpFilename << "]\n";
 		exit(EXIT_FAILURE);
 	}
 
 	if(!overwrite && fileExist(outFilename)) {
 		int ch = 0;
 		if("stdin" != inpFilename) {
-			cerr << "Overwrite [y/N]? ";
-			ch = cin.get();
+			std::cerr << "Overwrite [y/N]? ";
+			ch = std::cin.get();
 		}
 		if(ch != 'y') {
-			cerr << "Abort: " << outFilename << " already exists\n";
+			std::cerr << "Abort: " << outFilename << " already exists\n";
 			exit(EXIT_FAILURE);
 		}
 	}
 
 	if(!openOstream(&ctx, outFilename)) {
-		cerr << "ERROR: Can't open output file [" << outFilename << "]\n";
+		std::cerr << "ERROR: Can't open output file ["
+				  << outFilename << "]\n";
 		exit(EXIT_FAILURE);
 	}
 
@@ -340,7 +344,7 @@ int main(int argc, char* argv[]) {
 	switch(compMode) {
 	default:
 		assert(0);
-		cerr << "ERROR: You must specify a switch -c or -d\n";
+		std::cerr << "ERROR: You must specify a switch -c or -d\n";
 		exit(EXIT_FAILURE);
 		break;
 
@@ -358,7 +362,7 @@ int main(int argc, char* argv[]) {
 	closeIstream(&ctx);
 
 	if(LZ4MT_RESULT_OK != e) {
-		cerr << "ERROR: " << lz4mtResultToString(e) << "\n";
+		std::cerr << "ERROR: " << lz4mtResultToString(e) << "\n";
 		exit(EXIT_FAILURE);
 	}
 

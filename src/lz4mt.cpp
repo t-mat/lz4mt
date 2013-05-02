@@ -324,7 +324,6 @@ lz4mtResultToString(Lz4MtResult result)
 extern "C" Lz4MtResult
 lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 {
-	using namespace std;
 	assert(ctx);
 	assert(sd);
 
@@ -367,7 +366,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 	const bool singleThread      = 0 != (ctx->mode & LZ4MT_MODE_SEQUENTIAL);
 
-	vector<future<void>> futures;
+	std::vector<std::future<void>> futures;
 
 	auto f = [=, &futures] (int i, BufferPtr src, int srcSize)
 	{
@@ -409,7 +408,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 
 	Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 	for(int i = 0; !ctx->readEof(ctx); ++i) {
-		auto src = make_shared<Buffer>(nBlockMaximumSize);
+		auto src = std::make_shared<Buffer>(nBlockMaximumSize);
 		auto* srcPtr = src->data();
 		const auto srcSize = src->size();
 		const auto readSize = ctx->read(ctx, srcPtr
@@ -423,7 +422,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 			f(0, move(src), readSize);
 		} else {
 			futures.emplace_back(async(
-				  launch::async
+				std::launch::async
 				, f, i, move(src), readSize
 			));
 		}
@@ -451,11 +450,10 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 extern "C" Lz4MtResult
 lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 {
-	using namespace std;
 	assert(ctx);
 	assert(sd);
 
-	atomic<bool> quit(false);
+	std::atomic<bool> quit(false);
 
 	setResult(ctx, LZ4MT_RESULT_OK);
 	while(!quit && !error(ctx) && !ctx->readEof(ctx)) {
@@ -546,8 +544,8 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 										(ctx->mode & LZ4MT_MODE_SEQUENTIAL);
 
 		Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
-		mutex xxhMutex;
-		vector<future<Lz4MtResult>> futures;
+		std::mutex xxhMutex;
+		std::vector<std::future<Lz4MtResult>> futures;
 
 		auto f = [=, &futures, &xxhStream, &xxhMutex, &quit] (
 			int i, BufferPtr src
@@ -573,7 +571,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 				}
 				writeBin(ctx, srcPtr, srcSize);
 				if(streamChecksum) {
-					lock_guard<mutex> lk(xxhMutex);
+					std::lock_guard<std::mutex> lk(xxhMutex);
 					xxhStream.update(srcPtr, srcSize);
 				}
 			} else {
@@ -589,7 +587,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 				}
 				writeBin(ctx, dstPtr, decSize);
 				if(streamChecksum) {
-					lock_guard<mutex> lk(xxhMutex);
+					std::lock_guard<std::mutex> lk(xxhMutex);
 					xxhStream.update(dstPtr, decSize);
 				}
 			}
@@ -613,7 +611,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			const auto srcSize        = static_cast<int>(
 										  srcBits & ~incompMask);
 
-			auto src = make_shared<Buffer>(srcSize);
+			auto src = std::make_shared<Buffer>(srcSize);
 			if(srcSize != ctx->read(ctx, src->data(), srcSize)
 			   || error(ctx)
 			) {
@@ -633,7 +631,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 				f(0, move(src), incompressible, blockCheckSum);
 			} else {
 				futures.emplace_back(async(
-					  launch::async
+					std::launch::async
 					, f, i, move(src), incompressible, blockCheckSum
 				));
 			}

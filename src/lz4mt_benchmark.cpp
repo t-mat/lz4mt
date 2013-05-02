@@ -54,46 +54,46 @@ int Benchmark::measure(
 	  Lz4MtContext& cx
 	, const Lz4MtStreamDescriptor& sd
 ) {
-	using namespace std;
+	auto& logger = std::cerr;
 
-	const auto msgClearLine = [] {
-		cerr << "\r" << setw(79) << " " << "\r";
+	const auto msgClearLine = [&logger] {
+		logger << "\r" << std::setw(79) << " " << "\r";
 	};
 
-	const auto msgNewline = [] {
-		cerr << endl;
+	const auto msgNewline = [&logger] {
+		logger << std::endl;
 	};
 
-	const auto msgErrOpening = [](const string& filename) {
-		cerr << "Error: problem opening " << filename << endl;
+	const auto msgErrOpening = [&logger](const std::string& filename) {
+		logger << "Error: problem opening " << filename << std::endl;
 	};
 
-	const auto msgLoading = [](const string& filename) {
-		cerr << "Loading " << filename << "...\r";
-		cerr.flush();
+	const auto msgLoading = [&logger](const std::string& filename) {
+		logger << "Loading " << filename << "...\r";
+		logger.flush();
 	};
 
-	const auto msgErrReading = [](const string& filename) {
-		cerr << endl
-			 << "Error: problem reading file " << filename << endl;
+	const auto msgErrReading = [&logger](const std::string& filename) {
+		logger << std::endl
+			 << "Error: problem reading file " << filename << std::endl;
 	};
 
-	const auto msgErrChecksum = []
-		(const string& filename, uint32_t inpHash, uint32_t outHash)
+	const auto msgErrChecksum = [&logger]
+		(const std::string& filename, uint32_t inpHash, uint32_t outHash)
 	{
-		cerr << endl
+		logger << std::endl
 			 << "!!! WARNING !!! "
-			 << setw(14) << filename
+			 << std::setw(14) << filename
 			 << " : Invalid Checksum : "
-			 << setfill('0') << hex
-			 << setw(8) << inpHash
+			 << std::setfill('0') << std::hex
+			 << std::setw(8) << inpHash
 			 << " != "
-			 << setw(8) << outHash
-			 << endl << setfill(' ') << dec;
+			 << std::setw(8) << outHash
+			 << std::endl;
 	};
 
-	const auto msgReport = []
-		(  const string& filename
+	const auto msgReport = [&logger]
+		(  const std::string& filename
 		 , int iLoop
 		 , size_t filesize
 		 , size_t cmpSize
@@ -101,28 +101,32 @@ int Benchmark::measure(
 		 , double minDecompressionTime
 		)
 	{
-		cerr << iLoop << '-'
-			 << setw(14) << left << filename
+		logger << iLoop << '-'
+			 << std::setw(14) << std::left << filename
 			 << " :"
-			 << setw(10) << right << filesize
+			 << std::setw(10) << std::right << filesize
 			 << " ->"
-			 << setw(10) << cmpSize;
+			 << std::setw(10) << cmpSize;
 
 		const auto dFilesize = static_cast<double>(filesize);
 		const auto dFilesizeMib = dFilesize / 1024.0 / 1024.0;
 
-		cerr.precision(2);
-		cerr << fixed
-			 << " ("
-			 << setw(6) << static_cast<double>(cmpSize) * 100.0 / dFilesize
-			 << "%),";
+		logger.precision(2);
+		logger << std::fixed
+			<< " ("
+			<< std::setw(6)
+			<< static_cast<double>(cmpSize) * 100.0 / dFilesize
+			<< "%),";
 
-		cerr.precision(1);
-		cerr << setw(7) << dFilesizeMib / minCompressionTime << " MiB/s, "
-			 << setw(7) << dFilesizeMib / minDecompressionTime << " MiB/s"
-			 << "\r";
+		logger.precision(1);
+		logger
+			<< std::setw(7)
+			<< dFilesizeMib / minCompressionTime << " MiB/s, "
+			<< std::setw(7)
+			<< dFilesizeMib / minDecompressionTime << " MiB/s"
+			<< "\r";
 
-		cerr.flush();
+		logger.flush();
 	};
 
 	auto* ctx = &cx;
@@ -134,7 +138,10 @@ int Benchmark::measure(
 	const auto TIMELOOP = 2.0;	// sec
 
 	for(const auto& filename : files) {
-		vector<char> inpBuf(static_cast<size_t>(getFilesize(filename)));
+		std::vector<char> inpBuf(
+			static_cast<size_t>(getFilesize(filename))
+		);
+
 		{
 			if(!openIstream(ctx, filename)) {
 				msgErrOpening(filename);
@@ -161,7 +168,7 @@ int Benchmark::measure(
 			static_cast<size_t>(
 				ctx->compressBound(static_cast<int>(chunkSize)));
 
-		vector<char> outBuf(nChunk * maxChunkSize);
+		std::vector<char> outBuf(nChunk * maxChunkSize);
 
 		struct Chunk {
 			int		id;
@@ -173,7 +180,7 @@ int Benchmark::measure(
 			size_t	decSize;
 		};
 
-		vector<Chunk> chunks(nChunk);
+		std::vector<Chunk> chunks(nChunk);
 		{
 			auto r = inpBuf.size();
 			for(auto& e : chunks) {
@@ -189,10 +196,10 @@ int Benchmark::measure(
 			}
 		}
 
-		vector<future<void>> futures(chunks.size());
+		std::vector<std::future<void>> futures(chunks.size());
 
 		const auto b = [=, &futures, &chunks]
-			(function<void(Chunk*)> fChunk)
+			(std::function<void(Chunk*)> fChunk)
 		{
 			const auto t0 = getSyncTime();
 			auto t1 = t0;
@@ -200,7 +207,7 @@ int Benchmark::measure(
 
 			while(getTimeSpan(t0, t1 = getTime()) < TIMELOOP) {
 				for(auto& e : chunks) {
-					futures[e.id] = async(launch::async, fChunk, &e);
+					futures[e.id] = async(std::launch::async, fChunk, &e);
 				}
 				for(auto& e : futures) {
 					e.wait();
@@ -233,7 +240,7 @@ int Benchmark::measure(
 					);
 				}
 			);
-			minCmpTime = min(minCmpTime, cmpTime);
+			minCmpTime = std::min(minCmpTime, cmpTime);
 
 			if(1 == iLoop) {
 				cmpSize = 0;
@@ -260,7 +267,7 @@ int Benchmark::measure(
 					);
 				}
 			);
-			minDecTime = min(minDecTime, decTime);
+			minDecTime = std::min(minDecTime, decTime);
 
 			msgReport(filename, iLoop, inpBuf.size()
 					  , cmpSize, minCmpTime, minDecTime);
