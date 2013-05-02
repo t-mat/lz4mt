@@ -5,6 +5,7 @@
 #include <iostream>
 #include <iomanip>
 #include <map>
+#include <numeric>
 #include <string>
 #include <vector>
 #include "xxhash.h"
@@ -218,9 +219,7 @@ int Benchmark::measure(
 					  , cmpSize, minCmpTime, minDecTime);
 
 			// compression
-			for(size_t i = 0; i < outBuf.size(); ++i) {
-				outBuf[i] = static_cast<char>(i);
-			}
+			iota(outBuf.begin(), outBuf.end(), 0);
 			const auto cmpTime = b(
 				[ctx, singleThread, &futures] (Chunk* cp) {
 					if(singleThread && cp->id > 0) {
@@ -247,9 +246,7 @@ int Benchmark::measure(
 					  , cmpSize, minCmpTime, minDecTime);
 
 			// decompression
-			for(auto& e : inpBuf) {
-				e = 0;
-			}
+			fill(inpBuf.begin(), inpBuf.end(), 0);
 			const auto decTime = b(
 				[ctx, singleThread, &futures] (Chunk* cp) {
 					if(singleThread && cp->id > 0) {
