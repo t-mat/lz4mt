@@ -351,7 +351,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 		const auto sumSize = static_cast<int>(p - sumBegin);
 		const auto h = XXH32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED);
 		*p++ = static_cast<char>(getCheckBits_FromXXH(h));
-		assert(p <= end(d));
+		assert(p <= std::end(d));
 
 		const auto writeSize = static_cast<int>(p - d);
 		if(writeSize != ctx->write(ctx, d, writeSize)) {
@@ -529,7 +529,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 								getCheckBits_FromXXH(calHash32));
 		const auto srcHash   = *p++;
 
-		assert(p <= end(d));
+		assert(p <= std::end(d));
 
 		if(srcHash != calHash) {
 			setResult(ctx, LZ4MT_RESULT_INVALID_HEADER_CHECKSUM);

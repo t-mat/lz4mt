@@ -7,8 +7,8 @@ OBJDIR		= obj
 CC		= gcc
 CXX		= g++
 
-CFLAGS		= -Wall -O2 -std=c99
-CXXFLAGS	= -Wall -O2 -std=c++0x -Ilz4/
+CFLAGS		= -Wall -pedantic -O2 -std=c99
+CXXFLAGS	= -Wall -pedantic -O2 -std=c++0x -Ilz4/
 
 LD		= $(CXX)
 LDFLAGS		= -lrt -pthread
