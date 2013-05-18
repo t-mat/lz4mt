@@ -184,13 +184,15 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 
 class Xxh32 {
 public:
-	Xxh32(unsigned int seed) : p(nullptr) {
-		p = XXH32_init(seed);
+	Xxh32(unsigned int seed)
+		: p(new char[XXH32_sizeofState()])
+	{
+		XXH32_resetState(p, seed);
 	}
 
 	~Xxh32() {
 		if(p) {
-			XXH32_digest(p);
+			delete [] p;
 			p = nullptr;
 		}
 	}
@@ -212,7 +214,7 @@ public:
 	}
 
 private:
-	void* p;
+	char* p;
 };
 
 } // anonymous namespace
