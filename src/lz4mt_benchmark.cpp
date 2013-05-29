@@ -201,7 +201,7 @@ int Benchmark::measure(
 		std::vector<std::future<void>> futures(chunks.size());
 
 		const auto b = [=, &futures, &chunks]
-			(std::function<void(Chunk*)> fChunk)
+			(std::function<void(Chunk*)> fChunk) -> double
 		{
 			const auto t0 = getSyncTime();
 			auto t1 = t0;
