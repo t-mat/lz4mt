@@ -1,15 +1,15 @@
-#include <cassert>
+#include <array>
 #include <atomic>
+#include <cassert>
 #include <future>
 #include <mutex>
 #include <vector>
-#include "xxhash.h"
 #include "lz4mt.h"
+#include "lz4mt_xxh32.h"
+#include "lz4mt_mempool.h"
+
 
 namespace {
-
-typedef std::vector<char> Buffer;
-typedef std::shared_ptr<Buffer> BufferPtr;
 
 const uint32_t LZ4S_MAGICNUMBER = 0x184D2204;
 const uint32_t LZ4S_MAGICNUMBER_SKIPPABLE_MIN = 0x184D2A50;
@@ -17,10 +17,9 @@ const uint32_t LZ4S_MAGICNUMBER_SKIPPABLE_MAX = 0x184D2A5F;
 const uint32_t LZ4S_BLOCKSIZEID_DEFAULT = 7;
 const uint32_t LZ4S_CHECKSUM_SEED = 0;
 const uint32_t LZ4S_EOS = 0;
+const uint32_t LZ4S_MAX_HEADER_SIZE = 4 + 2 + 8 + 4 + 1;
 
-const int MAX_HEADER_SIZE = 4 + 2 + 8 + 4 + 1;
-
-int getBlocksize(int bdBlockMaximumSize) {
+int getBlockSize(int bdBlockMaximumSize) {
 	assert(bdBlockMaximumSize >= 4 && bdBlockMaximumSize <= 7);
 	return (1 << (8 + (2 * bdBlockMaximumSize)));
 }
@@ -105,10 +104,12 @@ uint64_t loadU64(const void* p) {
 }
 
 bool error(const Lz4MtContext* ctx) {
+	///@TODO: reimplement by std::condition_variable
 	return LZ4MT_RESULT_OK != ctx->result;
 }
 
 Lz4MtResult setResult(Lz4MtContext* ctx, Lz4MtResult result) {
+	///@TODO: reimplement by std::condition_variable
 	auto& r = ctx->result;
 	if(LZ4MT_RESULT_OK == r || LZ4MT_RESULT_ERROR == r) {
 		r = result;
@@ -135,7 +136,7 @@ bool writeU32(Lz4MtContext* ctx, uint32_t v) {
 	}
 
 	char d[sizeof(v)];
-	storeU32(&d, v);
+	storeU32(d, v);
 	if(sizeof(d) != ctx->write(ctx, d, sizeof(d))) {
 		ctx->result = LZ4MT_RESULT_ERROR;
 		return false;
@@ -167,7 +168,7 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 		return LZ4MT_RESULT_INVALID_HEADER;
 	}
 	if(0 == sd->flg.blockIndependance) {
-		///	@TODO: Implement Block Dependency.
+		///	@TODO: Implement Block Dependency. lz4: r96 - https://code.google.com/p/lz4/source/detail?r=96
 		return LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET;
 	}
 	if(sd->bd.blockMaximumSize < 4 || sd->bd.blockMaximumSize > 7) {
@@ -182,40 +183,6 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 	return LZ4MT_RESULT_OK;
 }
 
-class Xxh32 {
-public:
-	Xxh32(unsigned int seed)
-		: p(new char[XXH32_sizeofState()])
-	{
-		XXH32_resetState(p, seed);
-	}
-
-	~Xxh32() {
-		if(p) {
-			delete [] p;
-			p = nullptr;
-		}
-	}
-
-	XXH_errorcode update(const void* input, int len) {
-		if(p) {
-			return XXH32_update(p, input, len);
-		} else {
-			return XXH_ERROR;
-		}
-	}
-
-	unsigned int digest() {
-		if(p) {
-			return XXH32_intermediateDigest(p);
-		} else {
-			return 0;
-		}
-	}
-
-private:
-	char* p;
-};
 
 } // anonymous namespace
 
@@ -315,6 +282,9 @@ lz4mtResultToString(Lz4MtResult result)
 	case LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH:
 		s = "STREAM_CHECKSUM_MISMATCH";
 		break;
+	case LZ4MT_RESULT_DECOMPRESS_FAIL:
+		s = "RESULT_DECOMPRESS_FAIL";
+		break;
 	default:
 		s = "Unknown code";
 		break;
@@ -330,8 +300,8 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 	assert(sd);
 
 	{
-		char d[MAX_HEADER_SIZE] = { 0 };
-		char* p = d;
+		char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
+		auto p = &d[0];
 
 		const auto r = validateStreamDescriptor(sd);
 		if(LZ4MT_RESULT_OK != r) {
@@ -351,7 +321,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 		}
 
 		const auto sumSize = static_cast<int>(p - sumBegin);
-		const auto h = XXH32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED);
+		const auto h = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
 		*p++ = static_cast<char>(getCheckBits_FromXXH(h));
 		assert(p <= std::end(d));
 
@@ -361,36 +331,61 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 		}
 	}
 
-	const auto nBlockMaximumSize = getBlocksize(sd->bd.blockMaximumSize);
+	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
 	const auto nBlockSize        = 4;
 	const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
 	const auto cIncompressible   = 1 << (nBlockSize * 8 - 1);
 	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 	const bool singleThread      = 0 != (ctx->mode & LZ4MT_MODE_SEQUENTIAL);
+	const auto nConcurrency      = std::thread::hardware_concurrency();
+	const auto nPool             = singleThread ? 1 : nConcurrency + 1;
+	const auto launch            = singleThread ? std::launch::deferred : std::launch::async;
 
+	Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
+	Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
 	std::vector<std::future<void>> futures;
+	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
-	auto f = [=, &futures] (int i, BufferPtr src, int srcSize)
+	const auto f =
+		[&futures, &dstBufferPool, &xxhStream
+		 , ctx, nBlockCheckSum, streamChecksum, launch, cIncompressible
+		 ]
+		(int i, Lz4Mt::MemPool::Buffer* src, int srcSize)
 	{
+		Lz4Mt::MemPool::AutoDelete srcAutoDelete(src);
 		if(error(ctx)) {
 			return;
 		}
 
-		Buffer dst(srcSize);
-
 		const auto* srcPtr = src->data();
-		auto* cmpPtr = dst.data();
-		const auto cmpSize = ctx->compress(srcPtr, cmpPtr
-										   , srcSize, srcSize);
-
+		auto dst = dstBufferPool.alloc();
+		Lz4Mt::MemPool::AutoDelete wrtAutoDelete(dst);
+		auto* cmpPtr = dst->data();
+		const auto cmpSize = ctx->compress(srcPtr, cmpPtr, srcSize, srcSize);
 		const bool incompressible = (cmpSize <= 0);
-		auto* cPtr  = incompressible ? srcPtr  : cmpPtr;
-		auto  cSize = incompressible ? srcSize : cmpSize;
-		const auto hash = nBlockCheckSum ? XXH32(cPtr, cSize
-												 , LZ4S_CHECKSUM_SEED) : 0;
+		const auto* cPtr  = incompressible ? srcPtr  : cmpPtr;
+		const auto  cSize = incompressible ? srcSize : cmpSize;
+
+		std::future<uint32_t> futureBlockHash;
+		if(nBlockCheckSum) {
+			futureBlockHash = std::async(launch, [=] {
+				return Lz4Mt::Xxh32(cPtr, cSize, LZ4S_CHECKSUM_SEED).digest();
+			});
+		}
+
+		if(incompressible) {
+			wrtAutoDelete.reset();
+		}
 
 		if(i > 0) {
 			futures[i-1].wait();
+		}
+
+		std::future<void> futureStreamHash;
+		if(streamChecksum) {
+			futureStreamHash = std::async(launch, [=, &xxhStream] {
+				xxhStream.update(srcPtr, srcSize);
+			});
 		}
 
 		if(incompressible) {
@@ -401,32 +396,29 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 			writeBin(ctx, cmpPtr, cmpSize);
 		}
 
-		if(nBlockCheckSum) {
-			writeU32(ctx, hash);
+		if(futureBlockHash.valid()) {
+			writeU32(ctx, futureBlockHash.get());
 		}
 
-		src->clear();
+		if(futureStreamHash.valid()) {
+			futureStreamHash.wait();
+		}
 	};
 
-	Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
-	for(int i = 0; !ctx->readEof(ctx); ++i) {
-		auto src = std::make_shared<Buffer>(nBlockMaximumSize);
+	for(int i = 0;; ++i) {
+		auto src = srcBufferPool.alloc();
 		auto* srcPtr = src->data();
 		const auto srcSize = src->size();
-		const auto readSize = ctx->read(ctx, srcPtr
-										, static_cast<int>(srcSize));
+		const auto readSize = ctx->read(ctx, srcPtr, static_cast<int>(srcSize));
 
-		if(streamChecksum) {
-			xxhStream.update(srcPtr, readSize);
+		if(0 == readSize) {
+			break;
 		}
 
 		if(singleThread) {
-			f(0, move(src), readSize);
+			f(0, src, readSize);
 		} else {
-			futures.emplace_back(async(
-				std::launch::async
-				, f, i, move(src), readSize
-			));
+			futures.emplace_back(std::async(launch, f, i, src, readSize));
 		}
 	}
 
@@ -439,7 +431,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 	}
 
 	if(streamChecksum) {
-		auto digest = static_cast<uint32_t>(xxhStream.digest());
+		const auto digest = xxhStream.digest();
 		if(!writeU32(ctx, digest)) {
 			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
 		}
@@ -483,13 +475,13 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			continue;
 		}
 
-		if(magic != LZ4S_MAGICNUMBER) {
+		if(LZ4S_MAGICNUMBER != magic) {
 			ctx->readSeek(ctx, -4);
 			setResult(ctx, LZ4MT_RESULT_INVALID_MAGIC_NUMBER);
 			break;
 		}
 
-		char d[MAX_HEADER_SIZE] = { 0 };
+		char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
 		auto* p = d;
 		const auto* sumBegin = p;
 
@@ -526,9 +518,8 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 		}
 
 		const auto sumSize   = static_cast<int>(p - sumBegin);
-		const auto calHash32 = XXH32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED);
-		const auto calHash   = static_cast<char>(
-								getCheckBits_FromXXH(calHash32));
+		const auto calHash32 = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
+		const auto calHash   = static_cast<char>(getCheckBits_FromXXH(calHash32));
 		const auto srcHash   = *p++;
 
 		assert(p <= std::end(d));
@@ -538,61 +529,94 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			break;
 		}
 
-		const auto nBlockMaximumSize = getBlocksize(
-										sd->bd.blockMaximumSize);
+		const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
 		const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
 		const bool streamChecksum    = 0 != sd->flg.streamChecksum;
-		const bool singleThread      = 0 !=
-										(ctx->mode & LZ4MT_MODE_SEQUENTIAL);
+		const bool singleThread      = 0 != (ctx->mode & LZ4MT_MODE_SEQUENTIAL);
+		const auto nConcurrency      = std::thread::hardware_concurrency();
+		const auto nPool             = singleThread ? 1 : nConcurrency + 1;
+		const auto launch            = singleThread ? std::launch::deferred : std::launch::async;
 
-		Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
-		std::mutex xxhMutex;
+		Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
+		Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
 		std::vector<std::future<Lz4MtResult>> futures;
+		Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
-		auto f = [=, &futures, &xxhStream, &xxhMutex, &quit] (
-			int i, BufferPtr src
-			, bool incompressible, uint32_t blockChecksum
-		) {
+		const auto f = [
+			&futures, &dstBufferPool, &xxhStream, &quit
+			, ctx, nBlockCheckSum, streamChecksum, launch
+		] (int i, Lz4Mt::MemPool::Buffer* src, bool incompressible, uint32_t blockChecksum)
+		{
+			Lz4Mt::MemPool::AutoDelete srcAutoDelete(src);
+
 			if(error(ctx) || quit) {
 				return LZ4MT_RESULT_OK;
 			}
 
 			const auto* srcPtr = src->data();
 			const auto srcSize = static_cast<int>(src->size());
-			if(nBlockCheckSum
-			   && XXH32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED)
-			      != blockChecksum
-			) {
-				quit = true;
-				return LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH;
+
+			std::future<uint32_t> futureBlockHash;
+			if(nBlockCheckSum) {
+				futureBlockHash = std::async(launch, [=] {
+					return Lz4Mt::Xxh32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED).digest();
+				});
 			}
 
 			if(incompressible) {
 				if(i > 0) {
 					futures[i-1].wait();
 				}
-				writeBin(ctx, srcPtr, srcSize);
+
+				std::future<void> futureStreamHash;
 				if(streamChecksum) {
-					std::lock_guard<std::mutex> lk(xxhMutex);
-					xxhStream.update(srcPtr, srcSize);
+					futureStreamHash = std::async(
+						  launch
+						, [&xxhStream, srcPtr, srcSize] {
+							xxhStream.update(srcPtr, srcSize);
+						}
+					);
 				}
+				writeBin(ctx, srcPtr, srcSize);
+				futureStreamHash.wait();
 			} else {
-				Buffer dst(nBlockMaximumSize);
-				auto* dstPtr = dst.data();
-				const auto dstSize = dst.size();
+				auto dst = dstBufferPool.alloc();
+				Lz4Mt::MemPool::AutoDelete wrtAutoDelete(dst);
+
+				auto* dstPtr = dst->data();
+				const auto dstSize = dst->size();
 				const auto decSize = ctx->decompress(
 					srcPtr, dstPtr, srcSize, static_cast<int>(dstSize));
-				src->clear();
-				src->shrink_to_fit();
+				if(decSize < 0) {
+					quit = true;
+					return LZ4MT_RESULT_DECOMPRESS_FAIL;
+				}
+
 				if(i > 0) {
 					futures[i-1].wait();
 				}
-				writeBin(ctx, dstPtr, decSize);
+
+				std::future<void> futureStreamHash;
 				if(streamChecksum) {
-					std::lock_guard<std::mutex> lk(xxhMutex);
-					xxhStream.update(dstPtr, decSize);
+					futureStreamHash = std::async(
+						  launch
+						, [&xxhStream, dstPtr, decSize] {
+							xxhStream.update(dstPtr, decSize);
+						}
+					);
+				}
+				writeBin(ctx, dstPtr, decSize);
+				futureStreamHash.wait();
+			}
+
+			if(futureBlockHash.valid()) {
+				auto bh = futureBlockHash.get();
+				if(bh != blockChecksum) {
+					quit = true;
+					return LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH;
 				}
 			}
+
 			return LZ4MT_RESULT_OK;
 		};
 
@@ -610,17 +634,16 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 
 			const auto incompMask     = (1 << 31);
 			const bool incompressible = 0 != (srcBits & incompMask);
-			const auto srcSize        = static_cast<int>(
-										  srcBits & ~incompMask);
+			const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
 
-			auto src = std::make_shared<Buffer>(srcSize);
-			if(srcSize != ctx->read(ctx, src->data(), srcSize)
-			   || error(ctx)
-			) {
+			auto src = srcBufferPool.alloc();
+			const auto readSize = ctx->read(ctx, src->data(), srcSize);
+			if(srcSize != readSize || error(ctx)) {
 				quit = true;
 				setResult(ctx, LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA);
 				break;
 			}
+			src->resize(readSize);
 
 			const auto blockCheckSum = nBlockCheckSum ? readU32(ctx) : 0;
 			if(error(ctx)) {
@@ -630,17 +653,17 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			}
 
 			if(singleThread) {
-				f(0, move(src), incompressible, blockCheckSum);
+				f(0, src, incompressible, blockCheckSum);
 			} else {
-				futures.emplace_back(async(
-					std::launch::async
-					, f, i, move(src), incompressible, blockCheckSum
+				futures.emplace_back(std::async(
+					  launch
+					, f, i, src, incompressible, blockCheckSum
 				));
 			}
 		}
 
 		for(auto& e : futures) {
-			auto r = e.get();
+			const auto r = e.get();
 			if(LZ4MT_RESULT_OK != r) {
 				setResult(ctx, r);
 			}

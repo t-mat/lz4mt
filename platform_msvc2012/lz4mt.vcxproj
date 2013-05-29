@@ -24,6 +24,9 @@
     <ClCompile Include="..\lz4\xxhash.c" />
     <ClCompile Include="..\src\lz4mt.cpp" />
     <ClCompile Include="..\src\lz4mt_benchmark.cpp" />
+    <ClCompile Include="..\src\lz4mt_io_cstdio.cpp" />
+    <ClCompile Include="..\src\lz4mt_mempool.cpp" />
+    <ClCompile Include="..\src\lz4mt_xxh32.cpp" />
     <ClCompile Include="..\src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -32,6 +35,9 @@
     <ClInclude Include="..\lz4\xxhash.h" />
     <ClInclude Include="..\src\lz4mt.h" />
     <ClInclude Include="..\src\lz4mt_benchmark.h" />
+    <ClInclude Include="..\src\lz4mt_io_cstdio.h" />
+    <ClInclude Include="..\src\lz4mt_mempool.h" />
+    <ClInclude Include="..\src\lz4mt_xxh32.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A5661D76-9524-4D91-A993-F67832BDD02A}</ProjectGuid>

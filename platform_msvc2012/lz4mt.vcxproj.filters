@@ -18,6 +18,9 @@
     <ClCompile Include="..\src\lz4mt.cpp" />
     <ClCompile Include="..\src\main.cpp" />
     <ClCompile Include="..\src\lz4mt_benchmark.cpp" />
+    <ClCompile Include="..\src\lz4mt_io_cstdio.cpp" />
+    <ClCompile Include="..\src\lz4mt_xxh32.cpp" />
+    <ClCompile Include="..\src\lz4mt_mempool.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\lz4\lz4.h">
@@ -31,5 +34,8 @@
     </ClInclude>
     <ClInclude Include="..\src\lz4mt.h" />
     <ClInclude Include="..\src\lz4mt_benchmark.h" />
+    <ClInclude Include="..\src\lz4mt_io_cstdio.h" />
+    <ClInclude Include="..\src\lz4mt_xxh32.h" />
+    <ClInclude Include="..\src\lz4mt_mempool.h" />
   </ItemGroup>
 </Project>

@@ -11,7 +11,7 @@ extern "C" {
 struct Lz4MtParam;
 
 typedef int (*Lz4MtRead)(
-	  const struct Lz4MtContext* ctx
+	  struct Lz4MtContext* ctx
 	, void* dst
 	, int dstSize
 );
@@ -83,6 +83,8 @@ enum Lz4MtResult {
 	, LZ4MT_RESULT_CANNOT_READ_STREAM_CHECKSUM
 	, LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH
 	, LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH
+	, LZ4MT_RESULT_DECOMPRESS_FAIL
+	, LZ4MT_RESULT_BAD_ARG
 };
 typedef enum Lz4MtResult Lz4MtResult;
 
