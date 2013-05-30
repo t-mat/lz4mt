@@ -7,6 +7,7 @@
 #include "lz4mt.h"
 #include "lz4mt_xxh32.h"
 #include "lz4mt_mempool.h"
+#include "lz4mt_compat.h"
 
 
 namespace {
@@ -337,9 +338,9 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 	const auto cIncompressible   = 1 << (nBlockSize * 8 - 1);
 	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 	const bool singleThread      = 0 != (ctx->mode & LZ4MT_MODE_SEQUENTIAL);
-	const auto nConcurrency      = std::thread::hardware_concurrency();
+	const auto nConcurrency      = Lz4Mt::getHardwareConcurrency();
 	const auto nPool             = singleThread ? 1 : nConcurrency + 1;
-	const auto launch            = singleThread ? std::launch::deferred : std::launch::async;
+	const auto launch            = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
 
 	Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
 	Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
@@ -533,9 +534,9 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 		const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
 		const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 		const bool singleThread      = 0 != (ctx->mode & LZ4MT_MODE_SEQUENTIAL);
-		const auto nConcurrency      = std::thread::hardware_concurrency();
+		const auto nConcurrency      = Lz4Mt::getHardwareConcurrency();
 		const auto nPool             = singleThread ? 1 : nConcurrency + 1;
-		const auto launch            = singleThread ? std::launch::deferred : std::launch::async;
+		const auto launch            = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
 
 		Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
 		Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
@@ -546,6 +547,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 			&futures, &dstBufferPool, &xxhStream, &quit
 			, ctx, nBlockCheckSum, streamChecksum, launch
 		] (int i, Lz4Mt::MemPool::Buffer* src, bool incompressible, uint32_t blockChecksum)
+		  -> Lz4MtResult
 		{
 			Lz4Mt::MemPool::AutoDelete srcAutoDelete(src);
 
