@@ -196,7 +196,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(!opt.overwrite && fileExist(opt.outFilename)) {
-		const int ch = [&] {
+		const int ch = [&]() -> int {
 			if("stdin" != opt.inpFilename) {
 				std::cerr << "Overwrite [y/N]? ";
 				return std::cin.get();
@@ -217,7 +217,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	const auto t0 = Clock::now();
-	const auto e = [&] {
+	const auto e = [&]() -> Lz4MtResult {
 		if(opt.isCompress()) {
 			return lz4mtCompress(&ctx, &opt.sd);
 		} else if(opt.isDecompress()) {
