@@ -14,6 +14,10 @@ namespace Lz4Mt {
 
 MemPool::MemPool(size_t elementSize, size_t elementCount)
 	: stop(false)
+	, mut()
+	, cond()
+	, freeIndexStack()
+	, elements()
 {
 	Lock lock(mut);
 	elements.reserve(elementCount);

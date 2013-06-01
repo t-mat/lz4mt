@@ -24,6 +24,9 @@ public:
 		void resize(size_t contentSize);
 
 	private:
+		Buffer(const Buffer&);
+		const Buffer& operator=(const Buffer&);
+
 		char* ptr;
 		size_t contentSize;
 		Callback callback;
@@ -36,6 +39,9 @@ public:
 		void reset();
 
 	private:
+		AutoDelete(const AutoDelete&);
+		const AutoDelete& operator=(const AutoDelete&);
+
 		Buffer* p;
 	};
 

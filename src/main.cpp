@@ -53,7 +53,10 @@ struct Option {
 		, compMode(CompMode::COMPRESS_C0)
 		, sd(lz4mtInitStreamDescriptor())
 		, mode(LZ4MT_MODE_DEFAULT)
+		, inpFilename()
+		, outFilename()
 		, overwrite(false)
+		, benchmark()
 	{
 		std::map<std::string, std::function<void ()>> opts;
 		opts["-c0"] =

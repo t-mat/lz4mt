@@ -46,6 +46,10 @@ namespace Lz4Mt {
 Benchmark::Benchmark()
 	: enable(false)
 	, nIter(3)
+	, files()
+	, openIstream()
+	, closeIstream()
+	, getFilesize()
 {}
 
 Benchmark::~Benchmark()

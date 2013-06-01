@@ -144,7 +144,7 @@ uint64_t getFilesize(const std::string& fileanme) {
 		return (x & S_IFMT) == S_IFREG;
 	};
 #else
-	struct stat s = { 0 };
+	struct stat s;
 	r = stat(fileanme.c_str(), &s);
 #endif
 	if(r || !S_ISREG(s.st_mode)) {

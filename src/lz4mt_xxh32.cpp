@@ -14,7 +14,8 @@ typedef std::unique_lock<std::mutex> Lock;
 namespace Lz4Mt {
 
 Xxh32::Xxh32(uint32_t seed)
-	: st(new char[XXH32_sizeofState()])
+	: mut()
+	, st(new char[XXH32_sizeofState()])
 {
 	Lock lock(mut);
 	XXH32_resetState(st.get(), seed);
@@ -22,7 +23,8 @@ Xxh32::Xxh32(uint32_t seed)
 
 
 Xxh32::Xxh32(const void* input, int len, uint32_t seed)
-	: st(new char[XXH32_sizeofState()])
+	: mut()
+	, st(new char[XXH32_sizeofState()])
 {
 	Lock lock(mut);
 	XXH32_resetState(st.get(), seed);
