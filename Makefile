@@ -32,7 +32,7 @@ endif
 
 ##
 run: $(TSETUP) $(OUTPUT)
-	./$(OUTPUT) --help
+	-./$(OUTPUT) --help
 
 $(OUTPUT): $(OBJS) $(LZ4_OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)
@@ -44,19 +44,19 @@ obj/%.o: lz4/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 setup:
-	-mkdir $(OBJDIR)
+	-@mkdir $(OBJDIR)
 
 clean:
-	-rm *.linux.c*
-	-rm *.linux.d*
-	-rm -f $(OBJDIR)/*
-	-rmdir $(OBJDIR)
-	-rm -f $(OUTPUT)
+	-@rm -f *.linux.lz4.c*
+	-@rm -f *.linux.lz4.d*
+	-@rm -f $(OBJDIR)/*
+	-@rmdir $(OBJDIR) 2> /dev/null || true
+	-@rm -f $(OUTPUT)
 
 test:
-	-rm -f *.linux.c*
-	-rm -f *.linux.d*
-	./$(OUTPUT) -c0 $(ENWIK) $(ENWIK).linux.c0
-	./$(OUTPUT) -c1 $(ENWIK) $(ENWIK).linux.c1
-	./$(OUTPUT) -d $(ENWIK).linux.c0 $(ENWIK).linux.d0
-	./$(OUTPUT) -d $(ENWIK).linux.c1 $(ENWIK).linux.d1
+	-@rm -f *.linux.lz4.c*
+	-@rm -f *.linux.lz4.d*
+	./$(OUTPUT) -c0 $(ENWIK) $(ENWIK).linux.lz4.c0
+	./$(OUTPUT) -c1 $(ENWIK) $(ENWIK).linux.lz4.c1
+	./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
+	./$(OUTPUT) -d $(ENWIK).linux.lz4.c1 $(ENWIK).linux.lz4.d1
