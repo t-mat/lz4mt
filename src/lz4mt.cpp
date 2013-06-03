@@ -47,7 +47,7 @@ char flgToChar(const Lz4MtFlg& flg) {
 }
 
 Lz4MtFlg charToFlg(char c) {
-	Lz4MtFlg flg;
+	Lz4MtFlg flg = { 0 };
 	flg.presetDictionary	= (c >> 0) & 1;
 	flg.reserved1			= (c >> 1) & 1;
 	flg.streamChecksum		= (c >> 2) & 1;
@@ -67,7 +67,7 @@ char bdToChar(const Lz4MtBd& bd) {
 }
 
 Lz4MtBd charToBc(char c) {
-	Lz4MtBd bd;
+	Lz4MtBd bd = { 0 };
 	bd.reserved3		= (c >> 0) & 15;
 	bd.blockMaximumSize	= (c >> 4) &  7;
 	bd.reserved2		= (c >> 7) &  1;
@@ -191,7 +191,7 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 extern "C" Lz4MtContext
 lz4mtInitContext()
 {
-	Lz4MtContext e;
+	Lz4MtContext e = { LZ4MT_RESULT_OK, 0 };
 
 	e.result		= LZ4MT_RESULT_OK;
 	e.readCtx		= nullptr;
@@ -213,7 +213,7 @@ lz4mtInitContext()
 extern "C" Lz4MtStreamDescriptor
 lz4mtInitStreamDescriptor()
 {
-	Lz4MtStreamDescriptor e;
+	Lz4MtStreamDescriptor e = { { 0 } };
 
 	e.flg.presetDictionary	= 0;
 	e.flg.streamChecksum	= 1;

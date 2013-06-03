@@ -6,9 +6,10 @@ OBJDIR		= obj
 
 CC		= gcc
 CXX		= g++
+##CXX		= g++-4.6
 
-CFLAGS		= -Wall -pedantic -O2 -std=c99
-CXXFLAGS	= -Wall -pedantic -O2 -std=c++0x -Ilz4/
+CFLAGS		= -Wall -W -Wextra -pedantic -O2 -std=c99
+CXXFLAGS	= -Wall -W -Wextra -pedantic -Weffc++ -Wno-missing-field-initializers -O2 -std=c++0x -Ilz4/
 
 LD		= $(CXX)
 LDFLAGS		= -lrt -pthread
