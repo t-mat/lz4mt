@@ -20,6 +20,8 @@ const uint32_t LZ4S_CHECKSUM_SEED = 0;
 const uint32_t LZ4S_EOS = 0;
 const uint32_t LZ4S_MAX_HEADER_SIZE = 4 + 2 + 8 + 4 + 1;
 
+typedef std::unique_ptr<Lz4Mt::MemPool::Buffer> BufferPtr;
+
 int getBlockSize(int bdBlockMaximumSize) {
 	assert(bdBlockMaximumSize >= 4 && bdBlockMaximumSize <= 7);
 	return (1 << (8 + (2 * bdBlockMaximumSize)));
@@ -358,16 +360,15 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 		[&futures, &dstBufferPool, &xxhStream
 		 , ctx, nBlockCheckSum, streamChecksum, launch, cIncompressible
 		 ]
-		(int i, Lz4Mt::MemPool::Buffer* src, int srcSize)
+		(int i, Lz4Mt::MemPool::Buffer* srcRawPtr, int srcSize)
 	{
-		Lz4Mt::MemPool::AutoDelete srcAutoDelete(src);
+		BufferPtr src(srcRawPtr);
 		if(error(ctx)) {
 			return;
 		}
 
 		const auto* srcPtr = src->data();
-		auto dst = dstBufferPool.alloc();
-		Lz4Mt::MemPool::AutoDelete wrtAutoDelete(dst);
+		BufferPtr dst(dstBufferPool.alloc());
 		auto* cmpPtr = dst->data();
 		const auto cmpSize = ctx->compress(srcPtr, cmpPtr, srcSize, srcSize);
 		const bool incompressible = (cmpSize <= 0);
@@ -382,7 +383,7 @@ lz4mtCompress(Lz4MtContext* ctx, const Lz4MtStreamDescriptor* sd)
 		}
 
 		if(incompressible) {
-			wrtAutoDelete.reset();
+			dst.reset();
 		}
 
 		if(i > 0) {
@@ -553,11 +554,10 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 		const auto f = [
 			&futures, &dstBufferPool, &xxhStream, &quit
 			, ctx, nBlockCheckSum, streamChecksum, launch
-		] (int i, Lz4Mt::MemPool::Buffer* src, bool incompressible, uint32_t blockChecksum)
+		] (int i, Lz4Mt::MemPool::Buffer* srcRaw, bool incompressible, uint32_t blockChecksum)
 		  -> Lz4MtResult
 		{
-			Lz4Mt::MemPool::AutoDelete srcAutoDelete(src);
-
+			BufferPtr src(srcRaw);
 			if(error(ctx) || quit) {
 				return LZ4MT_RESULT_OK;
 			}
@@ -589,8 +589,7 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 				writeBin(ctx, srcPtr, srcSize);
 				futureStreamHash.wait();
 			} else {
-				auto dst = dstBufferPool.alloc();
-				Lz4Mt::MemPool::AutoDelete wrtAutoDelete(dst);
+				BufferPtr dst(dstBufferPool.alloc());
 
 				auto* dstPtr = dst->data();
 				const auto dstSize = dst->size();

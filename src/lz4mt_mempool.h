@@ -32,19 +32,6 @@ public:
 		Callback callback;
 	};
 
-	class AutoDelete {
-	public:
-		AutoDelete(Buffer* buffer);
-		~AutoDelete();
-		void reset();
-
-	private:
-		AutoDelete(const AutoDelete&);
-		const AutoDelete& operator=(const AutoDelete&);
-
-		Buffer* p;
-	};
-
 private:
 	typedef std::vector<char> Element;
 

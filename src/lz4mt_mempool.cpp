@@ -85,17 +85,4 @@ void MemPool::Buffer::resize(size_t contentSize) {
 }
 
 
-MemPool::AutoDelete::AutoDelete(Buffer* buffer)
-	: p(buffer)
-{}
-
-MemPool::AutoDelete::~AutoDelete() {
-	reset();
-}
-
-void MemPool::AutoDelete::reset() {
-	delete p;
-	p = nullptr;
-}
-
 } // namespace Lz4Mt
