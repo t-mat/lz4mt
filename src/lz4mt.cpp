@@ -587,7 +587,9 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 					);
 				}
 				writeBin(ctx, srcPtr, srcSize);
-				futureStreamHash.wait();
+				if(futureStreamHash.valid()) {
+					futureStreamHash.wait();
+				}
 			} else {
 				BufferPtr dst(dstBufferPool.alloc());
 
@@ -614,7 +616,9 @@ lz4mtDecompress(Lz4MtContext* ctx, Lz4MtStreamDescriptor* sd)
 					);
 				}
 				writeBin(ctx, dstPtr, decSize);
-				futureStreamHash.wait();
+				if(futureStreamHash.valid()) {
+					futureStreamHash.wait();
+				}
 			}
 
 			if(futureBlockHash.valid()) {

@@ -20,7 +20,7 @@
 #  endif
 #endif
 
-#if (GCC_VERSION == 406)
+#if (GCC_VERSION <= 406)
 #  define LAUNCH_SINGLE_THREAD std::launch::sync
 #else
 #  define LAUNCH_SINGLE_THREAD std::launch::deferred

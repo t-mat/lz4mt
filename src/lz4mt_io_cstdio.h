@@ -10,7 +10,7 @@ namespace Lz4Mt { namespace Cstdio {
 
 bool fileExist(const std::string& filename);
 bool openIstream(Lz4MtContext* ctx, const std::string& filename);
-bool openOstream(Lz4MtContext* ctx, const std::string& filename);
+bool openOstream(Lz4MtContext* ctx, const std::string& filename, bool nullWrite);
 void closeIstream(Lz4MtContext* ctx);
 void closeOstream(Lz4MtContext* ctx);
 int read(Lz4MtContext* ctx, void* dst, int dstSize);
