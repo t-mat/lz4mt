@@ -50,6 +50,7 @@ const char usage_advanced[] =
 struct Option {
 	Option(int argc, char* argv[])
 		: error(false)
+		, exitFlag(false)
 		, compMode(CompMode::COMPRESS_C0)
 		, sd(lz4mtInitStreamDescriptor())
 		, mode(LZ4MT_MODE_DEFAULT)
@@ -69,11 +70,11 @@ struct Option {
 		opts["-m" ] = [&] { mode &= ~LZ4MT_MODE_SEQUENTIAL; };
 		opts["--help"] = opts["-h" ] = opts["/?" ] = [&] {
 			std::cerr << usage;
-			error = true;
+			exitFlag = true;
 		};
 		opts["-H" ] = [&] {
 			std::cerr << usage << usage_advanced;
-			error = true;
+			exitFlag = true;
 		};
 		for(int i = 4; i <= 7; ++i) {
 			opts[std::string("-B") + std::to_string(i)] = [&, i] {
@@ -99,7 +100,7 @@ struct Option {
 			};
 		}
 
-		for(int iarg = 1; iarg < argc && !error; ++iarg) {
+		for(int iarg = 1; iarg < argc && !error && !exitFlag; ++iarg) {
 			const auto a = std::string(argv[iarg]);
 			const auto i = opts.find(a);
 			if(opts.end() != i) {
@@ -136,6 +137,7 @@ struct Option {
 	};
 
 	bool error;
+	bool exitFlag;
 	CompMode compMode;
 	Lz4MtStreamDescriptor sd;
 	int mode;
@@ -152,6 +154,12 @@ struct Option {
 int main(int argc, char* argv[]) {
 	using namespace Lz4Mt::Cstdio;
 	Option opt(argc, argv);
+
+	if(opt.exitFlag) {
+		exit(EXIT_SUCCESS);
+	} else if(opt.error) {
+		exit(EXIT_FAILURE);
+	}
 
 	Lz4MtContext ctx = lz4mtInitContext();
 	ctx.mode			= static_cast<Lz4MtMode>(opt.mode);
