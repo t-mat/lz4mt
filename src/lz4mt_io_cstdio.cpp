@@ -67,7 +67,7 @@ bool openIstream(Lz4MtContext* ctx, const std::string& filename) {
 	} else {
 		fp = fopen_(filename.c_str(), "rb");
 	}
-	ctx->readCtx = reinterpret_cast<void*>(fp);
+	ctx->readCtx = fp;
 	return nullptr != fp;
 }
 
@@ -78,7 +78,7 @@ bool openOstream(Lz4MtContext* ctx, const std::string& filename) {
 	} else {
 		fp = fopen_(filename.c_str(), "wb");
 	}
-	ctx->writeCtx = reinterpret_cast<void*>(fp);
+	ctx->writeCtx = fp;
 	return nullptr != fp;
 }
 
