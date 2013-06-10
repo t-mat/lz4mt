@@ -41,7 +41,7 @@ const char usage_advanced[] =
 //	" -t       : test compressed file \n"
 	" -B#      : Block size [4-7](default : 7)\n"
 	" -BX      : enable block checksum (default:disabled)\n"
-	" -nx      : disable stream checksum (default:enabled)\n"
+	" -Sx      : disable stream checksum (default:enabled)\n"
 	" -b#      : benchmark files, using # [0-1] compression level\n"
 	" -i#      : iteration loops [1-9](default : 3), benchmark mode"
 	             " only\n"
@@ -82,7 +82,7 @@ struct Option {
 			};
 		}
 		opts["-BX"] = [&] { sd.flg.blockChecksum = 1; };
-		opts["-nx"] = [&] { sd.flg.streamChecksum = 0; };
+		opts["-Sx"] = [&] { sd.flg.streamChecksum = 0; };
 		for(int i = 0; i <= 1; ++i) {
 			opts["-b" + std::to_string(i)] = [&, i] {
 				if(i == 0) {
