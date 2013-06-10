@@ -29,22 +29,22 @@ const char usage[] =
 	"  -c1/-hc : Compress (lz4hc)\n"
 	"  -d      : Decompress\n"
 	"  -y      : Overwrite without prompting\n"
-	"  -s      : Single thread mode\n"
-	"  -m      : Multi thread mode (default)\n"
 	"  -H      : Help (this text + advanced options)\n"
-	"  input   : can be 'stdin' (pipe) or a filename\n"
-	"  output  : can be 'stdout'(pipe) or a filename\n"// "or 'null'\n"
 ;
 
 const char usage_advanced[] =
 	"\nAdvanced options :\n"
-//	" -t       : test compressed file \n"
+	" -t       : decode test mode (do not output anything)\n"
 	" -B#      : Block size [4-7](default : 7)\n"
 	" -BX      : enable block checksum (default:disabled)\n"
 	" -Sx      : disable stream checksum (default:enabled)\n"
 	" -b#      : benchmark files, using # [0-1] compression level\n"
 	" -i#      : iteration loops [1-9](default : 3), benchmark mode"
 	             " only\n"
+	"  -s      : Single thread mode\n"
+	"  -m      : Multi thread mode (default)\n"
+	"  input   : can be 'stdin' (pipe) or a filename\n"
+	"  output  : can be 'stdout'(pipe) or a filename or 'null'\n"
 ;
 
 struct Option {
@@ -56,9 +56,12 @@ struct Option {
 		, mode(LZ4MT_MODE_DEFAULT)
 		, inpFilename()
 		, outFilename()
+		, nullWrite(false)
 		, overwrite(false)
 		, benchmark()
 	{
+		static const std::string nullFilename = "null";
+
 		std::map<std::string, std::function<void ()>> opts;
 		opts["-c0"] =
 		opts["-c" ] = [&] { compMode = CompMode::COMPRESS_C0; };
@@ -83,6 +86,11 @@ struct Option {
 		}
 		opts["-BX"] = [&] { sd.flg.blockChecksum = 1; };
 		opts["-Sx"] = [&] { sd.flg.streamChecksum = 0; };
+		opts["-t" ] = [&] {
+			compMode = CompMode::DECOMPRESS;
+			outFilename = nullFilename;
+		};
+
 		for(int i = 0; i <= 1; ++i) {
 			opts["-b" + std::to_string(i)] = [&, i] {
 				if(i == 0) {
@@ -119,6 +127,10 @@ struct Option {
 				error = true;
 			}
 		}
+
+		if(cmpFilename(nullFilename, outFilename)) {
+			nullWrite = true;
+		}
 	}
 
 	bool isCompress() const {
@@ -128,6 +140,16 @@ struct Option {
 
 	bool isDecompress() const {
 		return CompMode::DECOMPRESS == compMode;
+	}
+
+	static bool cmpFilename(const std::string& lhs, const std::string& rhs) {
+		const auto pLhs = lhs.c_str();
+		const auto pRhs = rhs.c_str();
+#if defined(_WIN32)
+		return 0 == _stricmp(pLhs, pRhs);
+#else
+		return 0 == strcmp(pLhs, pRhs);
+#endif
 	}
 
 	enum class CompMode {
@@ -143,6 +165,7 @@ struct Option {
 	int mode;
 	std::string inpFilename;
 	std::string outFilename;
+	bool nullWrite;
 	bool overwrite;
 	Lz4Mt::Benchmark benchmark;
 };
@@ -206,7 +229,7 @@ int main(int argc, char* argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	if(!opt.overwrite && fileExist(opt.outFilename)) {
+	if(!opt.nullWrite && !opt.overwrite && fileExist(opt.outFilename)) {
 		const int ch = [&]() -> int {
 			if("stdin" != opt.inpFilename) {
 				std::cerr << "Overwrite [y/N]? ";
@@ -221,7 +244,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if(!openOstream(&ctx, opt.outFilename)) {
+	if(!openOstream(&ctx, opt.outFilename, opt.nullWrite)) {
 		std::cerr << "ERROR: Can't open output file ["
 				  << opt.outFilename << "]\n";
 		exit(EXIT_FAILURE);
