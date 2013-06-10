@@ -8,6 +8,10 @@
 #include "lz4mt.h"
 
 namespace {
+bool isNullFp(const Lz4MtContext* ctx, FILE* fp) {
+	return reinterpret_cast<const FILE*>(ctx) == fp;
+}
+
 FILE* fopen_(const char* filename, const char* mode) {
 #if defined(_MSC_VER)
 	FILE* fp = nullptr;
@@ -71,9 +75,11 @@ bool openIstream(Lz4MtContext* ctx, const std::string& filename) {
 	return nullptr != fp;
 }
 
-bool openOstream(Lz4MtContext* ctx, const std::string& filename) {
+bool openOstream(Lz4MtContext* ctx, const std::string& filename, bool nullWrite) {
 	FILE* fp = nullptr;
-	if("stdout" == filename) {
+	if(nullWrite) {
+		fp = reinterpret_cast<FILE*>(ctx);
+	} else if("stdout" == filename) {
 		fp = getStdout();
 	} else {
 		fp = fopen_(filename.c_str(), "wb");
@@ -88,7 +94,10 @@ void closeIstream(Lz4MtContext* ctx) {
 }
 
 void closeOstream(Lz4MtContext* ctx) {
-	fclose_(writeCtx(ctx));
+	auto* fp = writeCtx(ctx);
+	if(!isNullFp(ctx, fp)) {
+		fclose_(fp);
+	}
 	ctx->writeCtx = nullptr;
 }
 
@@ -129,6 +138,9 @@ int readEof(const Lz4MtContext* ctx) {
 
 int write(const Lz4MtContext* ctx, const void* source, int sourceSize) {
 	if(auto* fp = writeCtx(ctx)) {
+		if(isNullFp(ctx, fp)) {
+			return sourceSize;
+		}
 		return static_cast<int>(::fwrite(source, 1, sourceSize, fp));
 	} else {
 		return 0;
