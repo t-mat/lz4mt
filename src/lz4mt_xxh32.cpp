@@ -41,7 +41,7 @@ Xxh32::~Xxh32() {
 bool Xxh32::update(const void* input, int len) {
 	Lock lock(mut);
 	if(st) {
-		return OK == XXH32_update(st.get(), input, len);
+		return XXH_OK == XXH32_update(st.get(), input, len);
 	} else {
 		return false;
 	}
