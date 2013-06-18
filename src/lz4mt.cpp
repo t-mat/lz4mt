@@ -343,7 +343,7 @@ lz4mtResultToString(Lz4MtResult result)
 		s = "STREAM_CHECKSUM_MISMATCH";
 		break;
 	case LZ4MT_RESULT_DECOMPRESS_FAIL:
-		s = "RESULT_DECOMPRESS_FAIL";
+		s = "DECOMPRESS_FAIL";
 		break;
 	default:
 		s = "Unknown code";
