@@ -13,14 +13,14 @@
 
 
 #ifndef GCC_VERSION
-#  if defined(__GNUC__) && defined(__GNUC_MINOR__)
+#  if defined(__GNUC__) && defined(__GNUC_MINOR__) && !defined(__clang__)
 #    define GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
 #  else
 #    define GCC_VERSION 0
 #  endif
 #endif
 
-#if (GCC_VERSION <= 406)
+#if (GCC_VERSION <= 406) && (GCC_VERSION > 0)
 #  define LAUNCH_SINGLE_THREAD std::launch::sync
 #else
 #  define LAUNCH_SINGLE_THREAD std::launch::deferred
