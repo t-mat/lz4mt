@@ -27,6 +27,7 @@
     <ClCompile Include="..\src\lz4mt_compat.cpp" />
     <ClCompile Include="..\src\lz4mt_io_cstdio.cpp" />
     <ClCompile Include="..\src\lz4mt_mempool.cpp" />
+    <ClCompile Include="..\src\lz4mt_threadpool.cpp" />
     <ClCompile Include="..\src\lz4mt_xxh32.cpp" />
     <ClCompile Include="..\src\main.cpp" />
   </ItemGroup>
@@ -39,6 +40,7 @@
     <ClInclude Include="..\src\lz4mt_compat.h" />
     <ClInclude Include="..\src\lz4mt_io_cstdio.h" />
     <ClInclude Include="..\src\lz4mt_mempool.h" />
+    <ClInclude Include="..\src\lz4mt_threadpool.h" />
     <ClInclude Include="..\src\lz4mt_xxh32.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
