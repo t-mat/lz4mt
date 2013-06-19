@@ -19,14 +19,14 @@ public:
 	}
 
 private:
-    typedef std::unique_lock<std::mutex> Lock;
-    typedef std::function<void(int)> Task;
+	typedef std::unique_lock<std::mutex> Lock;
+	typedef std::function<void(int)> Task;
 
-    std::atomic<bool> stop;
-    mutable std::mutex mut;
-    std::condition_variable cond;
+	std::atomic<bool> stop;
+	mutable std::mutex mut;
+	std::condition_variable cond;
 
-    std::queue<Task> tasks;
+	std::queue<Task> tasks;
 	std::vector<std::thread> threads;
 };
 

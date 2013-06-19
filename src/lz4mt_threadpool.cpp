@@ -29,8 +29,6 @@ ThreadPool::ThreadPool(size_t nThread)
 	}
 
 	for(int i = 0; i < static_cast<int>(nThread); ++i) {
-		// @NOTE: I want to set some kind of affinity mask here,
-		// but C++11 is not support any kind of affinity mask.
 		threads.push_back(std::thread(
 			[this, i] {
 				for(;;) {
