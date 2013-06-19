@@ -1,4 +1,5 @@
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <future>
@@ -12,15 +13,6 @@
 #include "lz4mt_compat.h"
 #include "lz4mt_threadpool.h"
 
-#if 1
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
-#include "test_clock.h"
-#endif
-
-//#define USE_THREADPOOL
 
 namespace {
 
@@ -151,7 +143,6 @@ public:
 	Context(Lz4MtContext* ctx)
 		: ctx(ctx)
 		, mutResult()
-		, mutFs()
 	{}
 
 	bool error() const {
@@ -216,27 +207,22 @@ public:
 	}
 
 	int read(void* dst, int dstSize) {
-		Lock lock(mutFs);
 		return ctx->read(ctx, dst, dstSize);
 	}
 
 	int readSeek(int offset) {
-		Lock lock(mutFs);
 		return ctx->readSeek(ctx, offset);
 	}
 
 	int readEof() {
-		Lock lock(mutFs);
 		return ctx->readEof(ctx);
 	}
 
 	int readSkippable(uint32_t magicNumber, size_t size) {
-		Lock lock(mutFs);
 		return ctx->readSkippable(ctx, magicNumber, size);
 	}
 
 	int write(const void* src, int srcSize) {
-		Lock lock(mutFs);
 		return ctx->write(ctx, src, srcSize);
 	}
 
@@ -252,27 +238,25 @@ private:
 	typedef std::unique_lock<std::mutex> Lock;
 	Lz4MtContext* ctx;
 	mutable std::mutex mutResult;
-	mutable std::mutex mutFs;
 };
 
 
-#if defined(USE_THREADPOOL)
-class TaskWait {
+#if defined(LZ4_USE_THREADPOOL)
+class TaskFlag {
 public:
-	TaskWait()
+	typedef int Index;
+
+	TaskFlag()
 		: stop(false)
 		, mut()
 		, cond()
 		, lastIndex(0)
-		, bits()
+		, indices()
 	{
-		Lock lock(mut);
-
-		bits.resize(1024 * 1024);
-		memset(bits.data(), 0, bits.size() * sizeof(bits[0]));
+		indices.reserve(1024);
 	}
 
-	~TaskWait() {
+	~TaskFlag() {
 		{
 			Lock lock(mut);
 			stop = true;
@@ -280,33 +264,42 @@ public:
 		cond.notify_all();
 	}
 
-	void wait(int i_) {
-		if(i_ <= 0) {
+	void wait(Index index) {
+		if(index <= 0) {
 			return;
 		}
-		const auto i1 = i_ - 1;
-		const auto i132 = i1 / 32;
-		const auto m = 1 << (i1 & 31);
+		const auto j = index - 1;
 		for(;;) {
-			volatile auto b = bits[i132] & m;
-			if(b != 0) {
-				return;
-			}
-			if(stop) {
-				return;
+			Lock lock(mut);
+			if(   !stop
+			   && j >= lastIndex
+			   && indices.end() == std::find(indices.begin(), indices.end(), j)
+			) {
+				cond.wait(lock);
 			}
 
-			Lock lock(mut);
-			cond.wait(lock);
+			if(   stop
+			   || j < lastIndex
+			   || indices.end() != std::find(indices.begin(), indices.end(), j)
+			) {
+				return;
+			}
 		}
 	}
 
-	void done(int i) {
+	void done(Index index) {
 		Lock lock(mut);
-		bits[i/32] |= 1 << (i & 31);
-		if(lastIndex < i) {
-			lastIndex = i;
+		indices.push_back(index);
+
+		for(;;) {
+			auto it = std::find(indices.begin(), indices.end(), lastIndex);
+			if(indices.end() == it) {
+				break;
+			}
+			indices.erase(it);
+			lastIndex += 1;
 		}
+
 		cond.notify_all();
 	}
 
@@ -315,9 +308,9 @@ private:
 	std::atomic<bool> stop;
 	mutable std::mutex mut;
 	std::condition_variable cond;
-	int lastIndex;
 
-	std::vector<uint32_t> bits;
+	Index lastIndex;
+    std::vector<Index> indices;
 };
 #endif
 
@@ -490,31 +483,23 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 
 	Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
 	Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
-#if defined(USE_THREADPOOL)
-//	Lz4Mt::ThreadPool threadPool;
+#if defined(LZ4_USE_THREADPOOL)
 	Lz4Mt::ThreadPool threadPool(nPool);
-	TaskWait taskWait;
+	TaskFlag taskFlag;
 #else
 	std::vector<std::future<void>> futures;
-#endif
-
-#if 0 && defined(USE_THREADPOOL)
-#else
 	const auto launch = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
 #endif
+
 	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
-#if 1
-//	double tt = 0.0;
-#endif
-
 	const auto f =
-#if defined(USE_THREADPOOL)
-		[&taskWait, &dstBufferPool, &xxhStream, launch, &tt
+#if defined(LZ4_USE_THREADPOOL)
+		[&taskFlag, &dstBufferPool, &xxhStream
 		 , ctx, nBlockCheckSum, streamChecksum, cIncompressible
 		 ]
 #else
-		[&futures, &dstBufferPool, &xxhStream //, &tt
+		[&futures, &dstBufferPool, &xxhStream
 		 , ctx, nBlockCheckSum, streamChecksum, launch, cIncompressible
 		 ]
 #endif
@@ -533,7 +518,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		const auto* cPtr  = incompressible ? srcPtr  : cmpPtr;
 		const auto  cSize = incompressible ? srcSize : cmpSize;
 
-#if 0 && defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 		uint32_t blockHash = 0;
 		if(nBlockCheckSum) {
 			blockHash = Lz4Mt::Xxh32(cPtr, cSize, LZ4S_CHECKSUM_SEED).digest();
@@ -550,23 +535,17 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 			dst.reset();
 		}
 
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 		if(i > 0) {
-//			const auto t0 = Clock::now();
-			taskWait.wait(i);
-//			const auto t1 = Clock::now();
-//			tt += std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
+			taskFlag.wait(i);
 		}
 #else
 		if(i > 0) {
-//			const auto t0 = Clock::now();
 			futures[i-1].wait();
-//			const auto t1 = Clock::now();
-//			tt += std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
 		}
 #endif
 
-#if 0 && defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 		if(streamChecksum) {
 			xxhStream.update(srcPtr, srcSize);
 		}
@@ -587,7 +566,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 			ctx->writeBin(cmpPtr, cmpSize);
 		}
 
-#if 0 && defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 		if(nBlockCheckSum) {
 			ctx->writeU32(blockHash);
 		}
@@ -600,8 +579,8 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		}
 #endif
 
-#if defined(USE_THREADPOOL)
-		taskWait.done(i);
+#if defined(LZ4_USE_THREADPOOL)
+		taskFlag.done(i);
 #else
 #endif
 	};
@@ -619,7 +598,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		if(singleThread) {
 			f(0, src, readSize);
 		} else {
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 			threadPool.enqueue(
 				[&f, i, src, readSize](int threadIndex) {
 					(void)(threadIndex);
@@ -632,7 +611,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		}
 	}
 
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 	threadPool.joinAll();
 #else
 	for(auto& e : futures) {
@@ -649,7 +628,6 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		if(!ctx->writeU32(digest)) {
 			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
 		}
-//		printf("xxhStream.digest = %08x    tt=%10.6f  ", digest, tt);
 	}
 
 	return LZ4MT_RESULT_OK;
@@ -756,9 +734,9 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 
 		Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
 		Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 		Lz4Mt::ThreadPool threadPool;
-		TaskWait taskWait;
+		TaskFlag taskFlag;
 #else
 		const auto launch = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
 		std::vector<std::future<Lz4MtResult>> futures;
@@ -766,8 +744,8 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 		Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
 		const auto f = [
-#if defined(USE_THREADPOOL)
-			&threadPool, &taskWait, &dstBufferPool, &xxhStream, &quit
+#if defined(LZ4_USE_THREADPOOL)
+			&threadPool, &taskFlag, &dstBufferPool, &xxhStream, &quit
 			, ctx, nBlockCheckSum, streamChecksum
 			] (int i, Lz4Mt::MemPool::Buffer* srcRaw, bool incompressible, uint32_t blockChecksum)
 		  -> void
@@ -780,7 +758,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 		{
 			BufferPtr src(srcRaw);
 			if(ctx->error() || quit) {
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 				return;
 #else
 				return LZ4MT_RESULT_OK;
@@ -790,7 +768,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			const auto* srcPtr = src->data();
 			const auto srcSize = static_cast<int>(src->size());
 
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 			uint32_t blockHash = 0;
 			if(nBlockCheckSum) {
 				blockHash = Lz4Mt::Xxh32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED).digest();
@@ -805,9 +783,9 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 #endif
 
 			if(incompressible) {
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 				if(i > 0) {
-					taskWait.wait(i);
+					taskFlag.wait(i);
 				}
 				if(streamChecksum) {
 					xxhStream.update(srcPtr, srcSize);
@@ -827,7 +805,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 				}
 #endif
 				ctx->writeBin(srcPtr, srcSize);
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 #else
 				if(futureStreamHash.valid()) {
 					futureStreamHash.wait();
@@ -842,7 +820,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					srcPtr, dstPtr, srcSize, static_cast<int>(dstSize));
 				if(decSize < 0) {
 					quit = true;
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 					ctx->setResult(LZ4MT_RESULT_DECOMPRESS_FAIL);
 					return;
 #else
@@ -850,9 +828,9 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 #endif
 				}
 
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 				if(i > 0) {
-					taskWait.wait(i);
+					taskFlag.wait(i);
 				}
 				if(streamChecksum) {
 					xxhStream.update(dstPtr, decSize);
@@ -873,7 +851,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 				}
 #endif
 				ctx->writeBin(dstPtr, decSize);
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 #else
 				if(futureStreamHash.valid()) {
 					futureStreamHash.wait();
@@ -881,7 +859,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 #endif
 			}
 
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 			if(nBlockCheckSum) {
 				if(blockHash != blockChecksum) {
 					quit = true;
@@ -899,15 +877,15 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			}
 #endif
 
-#if defined(USE_THREADPOOL)
-			taskWait.done(i);
+#if defined(LZ4_USE_THREADPOOL)
+			taskFlag.done(i);
 			return;
 #else
 			return LZ4MT_RESULT_OK;
 #endif
 		};
 
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 		int lastI = 0;
 #else
 #endif
@@ -946,7 +924,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			if(singleThread) {
 				f(0, src, incompressible, blockCheckSum);
 			} else {
-#if defined(USE_THREADPOOL)
+#if defined(LZ4_USE_THREADPOOL)
 				threadPool.enqueue(
 					[&f, i, src, incompressible, blockCheckSum](int threadIndex) {
 						(void)(threadIndex);
@@ -963,8 +941,8 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			}
 		}
 
-#if defined(USE_THREADPOOL)
-		taskWait.wait(lastI);
+#if defined(LZ4_USE_THREADPOOL)
+		taskFlag.wait(lastI);
 		threadPool.joinAll();
 #else
 		for(auto& e : futures) {

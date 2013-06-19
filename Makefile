@@ -6,10 +6,26 @@ OBJDIR		= obj
 
 CC		= gcc
 CXX		= g++
-##CXX		= g++-4.6
 
 CFLAGS		= -Wall -W -Wextra -pedantic -O2 -std=c99
-CXXFLAGS	= -Wall -W -Wextra -pedantic -Weffc++ -Wno-missing-field-initializers -O2 -std=c++0x -Ilz4/
+CXXFLAGS	= -DLZ4_USE_THREADPOOL -Wall -W -Wextra -pedantic -Weffc++ -Wno-missing-field-initializers -O2 -std=c++0x -Ilz4/
+
+GCC46		= gcc-4.6
+GXX46		= g++-4.6
+GCC46_FLAGS	= -Wall -W -Wextra -pedantic -O2 -std=c99
+GXX46_FLAGS	= -DLZ4_USE_THREADPOOL -Wall -W -Wextra -pedantic -Weffc++ -Wno-missing-field-initializers -O2 -std=c++0x -Ilz4/
+
+CLANG		= clang
+CLANGXX		= clang++
+CLANG_FLAGS	= -Wall -W -Wextra -pedantic -O2 -std=c99 -Wno-static-in-inline
+CLANGXX_FLAGS	= -DLZ4_USE_THREADPOOL -Wall -W -Wextra -pedantic -Weffc++ -Wno-missing-field-initializers -O2 -std=c++11 -Ilz4/ -stdlib=libstdc++
+
+ifeq ($(CC),clang)
+CC		= $(CLANG)
+CXX		= $(CLANGXX)
+CFLAGS		= $(CLANG_FLAGS)
+CXXFLAGS	= $(CLANGXX_FLAGS)
+endif
 
 LD		= $(CXX)
 LDFLAGS		= -lrt -pthread
@@ -56,7 +72,9 @@ clean:
 test:
 	-@rm -f *.linux.lz4.c*
 	-@rm -f *.linux.lz4.d*
-	./$(OUTPUT) -c0 $(ENWIK) $(ENWIK).linux.lz4.c0
-	./$(OUTPUT) -c1 $(ENWIK) $(ENWIK).linux.lz4.c1
-	./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
-	./$(OUTPUT) -d $(ENWIK).linux.lz4.c1 $(ENWIK).linux.lz4.d1
+	./$(OUTPUT) -y -c0 $(ENWIK) $(ENWIK).linux.lz4.c0
+	./$(OUTPUT) -y -c1 $(ENWIK) $(ENWIK).linux.lz4.c1
+	./$(OUTPUT) -y -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
+	./$(OUTPUT) -y -d $(ENWIK).linux.lz4.c1 $(ENWIK).linux.lz4.d1
+	-@cmp $(ENWIK) $(ENWIK).linux.lz4.d0
+	-@cmp $(ENWIK) $(ENWIK).linux.lz4.d1
