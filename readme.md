@@ -14,6 +14,12 @@ implementation in C++11.
  - Run `make`.
  - `./lz4mt` will be created.
 
+## Experimental: Building for Linux with Clang
+
+ - Checkout [`implement-thread-pool`](https://github.com/t-mat/lz4mt/tree/implement-thread-pool) branch.
+ - Run `make CC=clang`
+ - `./lz4mt` will be created.
+
 ## See also
 
  - [lz4 Extremely Fast Compression algorithm](https://code.google.com/p/lz4/)
