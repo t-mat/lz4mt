@@ -138,6 +138,111 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 	return LZ4MT_RESULT_OK;
 }
 
+
+#if defined(LZ4_USE_THREADPOOL)
+class TaskFlag {
+public:
+	typedef int Index;
+
+	TaskFlag()
+		: stop(false)
+		, mut()
+		, cond()
+		, lastIndex(0)
+		, indices()
+	{
+		indices.reserve(1024);
+	}
+
+	~TaskFlag() {
+		{
+			Lock lock(mut);
+			stop = true;
+		}
+		cond.notify_all();
+	}
+
+	void wait(Index index) {
+		if(index <= 0) {
+			return;
+		}
+		const auto j = index - 1;
+		for(;;) {
+			Lock lock(mut);
+			if(   !stop
+			   && j >= lastIndex
+			   && indices.end() == std::find(indices.begin(), indices.end(), j)
+			) {
+				cond.wait(lock);
+			}
+
+			if(   stop
+			   || j < lastIndex
+			   || indices.end() != std::find(indices.begin(), indices.end(), j)
+			) {
+				return;
+			}
+		}
+	}
+
+	void done(Index index) {
+		Lock lock(mut);
+		indices.push_back(index);
+
+		for(;;) {
+			auto it = std::find(indices.begin(), indices.end(), lastIndex);
+			if(indices.end() == it) {
+				break;
+			}
+			indices.erase(it);
+			lastIndex += 1;
+		}
+
+		cond.notify_all();
+	}
+
+private:
+	typedef std::unique_lock<std::mutex> Lock;
+	std::atomic<bool> stop;
+	mutable std::mutex mut;
+	std::condition_variable cond;
+
+	Index lastIndex;
+    std::vector<Index> indices;
+};
+
+
+class AsyncEvent {
+public:
+	AsyncEvent()
+		: flag(false)
+		, mut()
+		, cond()
+	{}
+
+	~AsyncEvent() {
+		set();
+	}
+
+	void set() {
+		flag.store(true);
+		cond.notify_all();
+	}
+
+	void wait() {
+		Lock lock(mut);
+		cond.wait(lock, [this] { return this->flag.load(); });
+	}
+
+private:
+	typedef std::unique_lock<std::mutex> Lock;
+	std::atomic<bool> flag;
+	mutable std::mutex mut;
+	std::condition_variable cond;
+};
+#endif
+
+
 class Context {
 public:
 	Context(Lz4MtContext* ctx)
@@ -239,80 +344,6 @@ private:
 	Lz4MtContext* ctx;
 	mutable std::mutex mutResult;
 };
-
-
-#if defined(LZ4_USE_THREADPOOL)
-class TaskFlag {
-public:
-	typedef int Index;
-
-	TaskFlag()
-		: stop(false)
-		, mut()
-		, cond()
-		, lastIndex(0)
-		, indices()
-	{
-		indices.reserve(1024);
-	}
-
-	~TaskFlag() {
-		{
-			Lock lock(mut);
-			stop = true;
-		}
-		cond.notify_all();
-	}
-
-	void wait(Index index) {
-		if(index <= 0) {
-			return;
-		}
-		const auto j = index - 1;
-		for(;;) {
-			Lock lock(mut);
-			if(   !stop
-			   && j >= lastIndex
-			   && indices.end() == std::find(indices.begin(), indices.end(), j)
-			) {
-				cond.wait(lock);
-			}
-
-			if(   stop
-			   || j < lastIndex
-			   || indices.end() != std::find(indices.begin(), indices.end(), j)
-			) {
-				return;
-			}
-		}
-	}
-
-	void done(Index index) {
-		Lock lock(mut);
-		indices.push_back(index);
-
-		for(;;) {
-			auto it = std::find(indices.begin(), indices.end(), lastIndex);
-			if(indices.end() == it) {
-				break;
-			}
-			indices.erase(it);
-			lastIndex += 1;
-		}
-
-		cond.notify_all();
-	}
-
-private:
-	typedef std::unique_lock<std::mutex> Lock;
-	std::atomic<bool> stop;
-	mutable std::mutex mut;
-	std::condition_variable cond;
-
-	Index lastIndex;
-    std::vector<Index> indices;
-};
-#endif
 
 
 } // anonymous namespace
@@ -486,6 +517,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 #if defined(LZ4_USE_THREADPOOL)
 	Lz4Mt::ThreadPool threadPool(nPool);
 	TaskFlag taskFlag;
+	Lz4Mt::ThreadPool asyncIoThread(1);
 #else
 	std::vector<std::future<void>> futures;
 	const auto launch = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
@@ -497,6 +529,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 #if defined(LZ4_USE_THREADPOOL)
 		[&taskFlag, &dstBufferPool, &xxhStream
 		 , ctx, nBlockCheckSum, streamChecksum, cIncompressible
+		 , &asyncIoThread
 		 ]
 #else
 		[&futures, &dstBufferPool, &xxhStream
@@ -523,6 +556,37 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		if(nBlockCheckSum) {
 			blockHash = Lz4Mt::Xxh32(cPtr, cSize, LZ4S_CHECKSUM_SEED).digest();
 		}
+		if(incompressible) {
+			dst.reset();
+		}
+		if(i > 0) {
+			taskFlag.wait(i);
+		}
+		AsyncEvent asyncEvent;
+		asyncIoThread.enqueue(
+			[ &asyncEvent, ctx
+			 , incompressible
+			 , cSize, cIncompressible, srcPtr, srcSize, cmpPtr, cmpSize
+			 , nBlockCheckSum, blockHash
+			](int) {
+				if(incompressible) {
+					ctx->writeU32(cSize | cIncompressible);
+					ctx->writeBin(srcPtr, srcSize);
+				} else {
+					ctx->writeU32(cSize);
+					ctx->writeBin(cmpPtr, cmpSize);
+				}
+				if(nBlockCheckSum) {
+					ctx->writeU32(blockHash);
+				}
+				asyncEvent.set();
+			}
+		);
+		if(streamChecksum) {
+			xxhStream.update(srcPtr, srcSize);
+		}
+		asyncEvent.wait();
+		taskFlag.done(i);
 #else
 		std::future<uint32_t> futureBlockHash;
 		if(nBlockCheckSum) {
@@ -530,34 +594,18 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 				return Lz4Mt::Xxh32(cPtr, cSize, LZ4S_CHECKSUM_SEED).digest();
 			});
 		}
-#endif
 		if(incompressible) {
 			dst.reset();
 		}
-
-#if defined(LZ4_USE_THREADPOOL)
-		if(i > 0) {
-			taskFlag.wait(i);
-		}
-#else
 		if(i > 0) {
 			futures[i-1].wait();
 		}
-#endif
-
-#if defined(LZ4_USE_THREADPOOL)
-		if(streamChecksum) {
-			xxhStream.update(srcPtr, srcSize);
-		}
-#else
 		std::future<void> futureStreamHash;
 		if(streamChecksum) {
 			futureStreamHash = std::async(launch, [=, &xxhStream] {
 				xxhStream.update(srcPtr, srcSize);
 			});
 		}
-#endif
-
 		if(incompressible) {
 			ctx->writeU32(cSize | cIncompressible);
 			ctx->writeBin(srcPtr, srcSize);
@@ -566,22 +614,12 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 			ctx->writeBin(cmpPtr, cmpSize);
 		}
 
-#if defined(LZ4_USE_THREADPOOL)
-		if(nBlockCheckSum) {
-			ctx->writeU32(blockHash);
-		}
-#else
 		if(futureBlockHash.valid()) {
 			ctx->writeU32(futureBlockHash.get());
 		}
 		if(futureStreamHash.valid()) {
 			futureStreamHash.wait();
 		}
-#endif
-
-#if defined(LZ4_USE_THREADPOOL)
-		taskFlag.done(i);
-#else
 #endif
 	};
 
@@ -600,8 +638,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		} else {
 #if defined(LZ4_USE_THREADPOOL)
 			threadPool.enqueue(
-				[&f, i, src, readSize](int threadIndex) {
-					(void)(threadIndex);
+				[&f, i, src, readSize](int) {
 					f(i, src, readSize);
 				}
 			);
@@ -737,6 +774,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 #if defined(LZ4_USE_THREADPOOL)
 		Lz4Mt::ThreadPool threadPool;
 		TaskFlag taskFlag;
+		Lz4Mt::ThreadPool asyncIoThread(1);
 #else
 		const auto launch = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
 		std::vector<std::future<Lz4MtResult>> futures;
@@ -747,6 +785,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 #if defined(LZ4_USE_THREADPOOL)
 			&threadPool, &taskFlag, &dstBufferPool, &xxhStream, &quit
 			, ctx, nBlockCheckSum, streamChecksum
+			, &asyncIoThread
 			] (int i, Lz4Mt::MemPool::Buffer* srcRaw, bool incompressible, uint32_t blockChecksum)
 		  -> void
 #else
@@ -787,9 +826,19 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 				if(i > 0) {
 					taskFlag.wait(i);
 				}
+				AsyncEvent asyncEvent;
+				asyncIoThread.enqueue(
+					[ctx, srcPtr, srcSize
+					 , &asyncEvent
+					](int) {
+						ctx->writeBin(srcPtr, srcSize);
+						asyncEvent.set();
+					}
+				);
 				if(streamChecksum) {
 					xxhStream.update(srcPtr, srcSize);
 				}
+				asyncEvent.wait();
 #else
 				if(i > 0) {
 					futures[i-1].wait();
@@ -803,10 +852,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 						}
 					);
 				}
-#endif
 				ctx->writeBin(srcPtr, srcSize);
-#if defined(LZ4_USE_THREADPOOL)
-#else
 				if(futureStreamHash.valid()) {
 					futureStreamHash.wait();
 				}
@@ -832,9 +878,20 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 				if(i > 0) {
 					taskFlag.wait(i);
 				}
+				AsyncEvent asyncEvent;
+				asyncIoThread.enqueue(
+					[ctx, dstPtr, decSize
+					 , &asyncEvent
+					](int threadIndex) {
+						(void)(threadIndex);
+						ctx->writeBin(dstPtr, decSize);
+						asyncEvent.set();
+					}
+				);
 				if(streamChecksum) {
 					xxhStream.update(dstPtr, decSize);
 				}
+				asyncEvent.wait();
 #else
 				if(i > 0) {
 					futures[i-1].wait();
@@ -849,10 +906,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 						}
 					);
 				}
-#endif
 				ctx->writeBin(dstPtr, decSize);
-#if defined(LZ4_USE_THREADPOOL)
-#else
 				if(futureStreamHash.valid()) {
 					futureStreamHash.wait();
 				}
@@ -867,6 +921,8 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					return;
 				}
 			}
+			taskFlag.done(i);
+			return;
 #else
 			if(futureBlockHash.valid()) {
 				auto bh = futureBlockHash.get();
@@ -875,19 +931,12 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					return LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH;
 				}
 			}
-#endif
-
-#if defined(LZ4_USE_THREADPOOL)
-			taskFlag.done(i);
-			return;
-#else
 			return LZ4MT_RESULT_OK;
 #endif
 		};
 
 #if defined(LZ4_USE_THREADPOOL)
 		int lastI = 0;
-#else
 #endif
 		for(int i = 0; !quit && !ctx->readEof(); ++i) {
 			const auto srcBits = ctx->readU32();
