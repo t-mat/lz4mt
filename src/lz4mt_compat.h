@@ -6,7 +6,7 @@ namespace Lz4Mt {
 unsigned getHardwareConcurrency();
 
 struct launch {
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && (_MSC_VER <= 1700)
 	typedef std::launch::launch Type;
 #else
 	typedef std::launch Type;
