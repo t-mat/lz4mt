@@ -15,7 +15,7 @@ CXXFLAGS	= -Wall -W -Wextra -pedantic -Weffc++ -Wno-missing-field-initializers -
 LD		= $(CXX)
 LDFLAGS		=
 
-ifneq(, $(findstring darwin, $(DUMPMACHINE)))
+ifneq (, $(findstring darwin, $(DUMPMACHINE)))
 	## Mac OS X
 	LDFLAGS	+= -pthread
 else
