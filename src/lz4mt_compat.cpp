@@ -40,10 +40,10 @@ unsigned Lz4Mt::getHardwareConcurrency() {
 
 	// following code is borrowed from boost-1.53.0/libs/thread/src/pthread/thread.cpp
 #if defined(__APPLE__) || defined(__FreeBSD__)
-	{ // ## NOT TESTED ##
+	{
 		int c = 0;
 		size_t size = sizeof(c);
-		if(0 == sysctlbyname("hw.ncpu", &count, &size, NULL, 0)) {
+		if(0 == sysctlbyname("hw.ncpu", &c, &size, NULL, 0)) {
 			return static_cast<unsigned>(c);
 		}
 	}
