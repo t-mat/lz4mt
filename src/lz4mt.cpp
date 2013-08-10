@@ -468,7 +468,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 	};
 
 	for(int i = 0;; ++i) {
-		auto src = srcBufferPool.alloc();
+		BufferPtr src(srcBufferPool.alloc());
 		auto* srcPtr = src->data();
 		const auto srcSize = src->size();
 		const auto readSize = ctx->read(srcPtr, static_cast<int>(srcSize));
@@ -478,9 +478,9 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		}
 
 		if(singleThread) {
-			f(0, src, readSize);
+			f(0, src.release(), readSize);
 		} else {
-			futures.emplace_back(std::async(launch, f, i, src, readSize));
+			futures.emplace_back(std::async(launch, f, i, src.release(), readSize));
 		}
 	}
 
@@ -704,7 +704,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			const bool incompressible = 0 != (srcBits & incompMask);
 			const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
 
-			auto src = srcBufferPool.alloc();
+			BufferPtr src(srcBufferPool.alloc());
 			const auto readSize = ctx->read(src->data(), srcSize);
 			if(srcSize != readSize || ctx->error()) {
 				quit = true;
@@ -721,11 +721,11 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			}
 
 			if(singleThread) {
-				f(0, src, incompressible, blockCheckSum);
+				f(0, src.release(), incompressible, blockCheckSum);
 			} else {
 				futures.emplace_back(std::async(
 					  launch
-					, f, i, src, incompressible, blockCheckSum
+					, f, i, src.release(), incompressible, blockCheckSum
 				));
 			}
 		}

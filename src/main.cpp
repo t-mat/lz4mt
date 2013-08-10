@@ -9,6 +9,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #include "lz4.h"
 #include "lz4hc.h"
 #include "xxhash.h"
@@ -176,6 +179,9 @@ struct Option {
 
 
 int main(int argc, char* argv[]) {
+#if defined(_MSC_VER) && defined(_DEBUG)
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
 	using namespace Lz4Mt::Cstdio;
 	Option opt(argc, argv);
 
@@ -276,5 +282,9 @@ int main(int argc, char* argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
+#if defined(_MSC_VER) && defined(_DEBUG)
+	return EXIT_SUCCESS;
+#else
 	exit(EXIT_SUCCESS);
+#endif
 }
