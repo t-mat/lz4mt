@@ -98,7 +98,7 @@ struct Option {
 				} else if(outFilename.empty()) {
 					outFilename = a;
 				} else {
-					errorString += "ERROR: Bad argument ["
+					errorString += "lz4mt: Bad argument ["
 								   + std::string(a) + "]\n";
 					error = true;
 				}
@@ -215,16 +215,22 @@ struct Option {
 			}
 
 			if(outFilename.empty()) {
-				if(isCompress()) {
-					if(cmpFilename(stdinFilename, inpFilename)) {
-						outFilename = stdoutFilename;
-						silence = true;
-					} else {
-						outFilename = inpFilename + LZ4MT_EXTENSION;
-					}
+				if(cmpFilename(stdinFilename, inpFilename)) {
+					outFilename = stdoutFilename;
+					silence = true;
+				} else if(isCompress()) {
+					outFilename = inpFilename + LZ4MT_EXTENSION;
 				} else {
-					errorString += "ERROR: No output filename\n";
-					error = true;
+					const auto o = inpFilename.find_last_of('.');
+					if(   std::string::npos != o
+					   && 0 == inpFilename.compare(
+						   o, strlen(LZ4MT_EXTENSION), LZ4MT_EXTENSION)
+					) {
+						outFilename = inpFilename.substr(0, o);
+					} else {
+						errorString += "lz4mt: Cannot automatically decide an output filename\n";
+						error = true;
+					}
 				}
 			}
 
@@ -371,7 +377,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if(!openIstream(&ctx, opt.inpFilename)) {
-		opt.display("ERROR: Can't open input file ["
+		opt.display("lz4mt: Can't open input file ["
 					+ opt.inpFilename + "]\n");
 		exit(EXIT_FAILURE);
 	}
@@ -379,20 +385,20 @@ int main(int argc, char* argv[]) {
 	if(!opt.nullWrite && !opt.overwrite && fileExist(opt.outFilename)) {
 		const int ch = [&]() -> int {
 			if(!opt.silence) {
-				opt.display("Overwrite [y/N]? ");
+				opt.display("lz4mt: Overwrite [y/N]? ");
 				return std::cin.get();
 			} else {
 				return 0;
 			}
 		} ();
 		if('y' != ch && 'Y' != ch) {
-			opt.display("Abort: " + opt.outFilename + " already exists\n");
+			opt.display("lz4mt: " + opt.outFilename + " already exists\n");
 			exit(EXIT_FAILURE);
 		}
 	}
 
 	if(!openOstream(&ctx, opt.outFilename, opt.nullWrite)) {
-		opt.display("ERROR: Can't open output file ["
+		opt.display("lz4mt: Can't open output file ["
 					+ opt.outFilename + "]\n");
 		exit(EXIT_FAILURE);
 	}
@@ -405,7 +411,7 @@ int main(int argc, char* argv[]) {
 			return lz4mtDecompress(&ctx, &opt.sd);
 		} else {
 			assert(0);
-			opt.display("ERROR: You must specify a switch -c or -d\n");
+			opt.display("lz4mt: You must specify a switch -c or -d\n");
 			return LZ4MT_RESULT_BAD_ARG;
 		}
 	} ();
@@ -418,7 +424,7 @@ int main(int argc, char* argv[]) {
 	opt.display("Total time: " + std::to_string(dt) + "sec\n");
 
 	if(LZ4MT_RESULT_OK != e) {
-		opt.display("ERROR: " + std::string(lz4mtResultToString(e)) + "\n");
+		opt.display("lz4mt: " + std::string(lz4mtResultToString(e)) + "\n");
 		exit(EXIT_FAILURE);
 	}
 
