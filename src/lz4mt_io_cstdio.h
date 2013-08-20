@@ -19,6 +19,11 @@ int readSeek(const Lz4MtContext* ctx, int offset);
 int readEof(const Lz4MtContext* ctx);
 int write(const Lz4MtContext* ctx, const void* source, int sourceSize);
 uint64_t getFilesize(const std::string& fileanme);
+std::string getStdinFilename();
+std::string getStdoutFilename();
+std::string getNullFilename();
+bool isAttyStdin();
+bool isAttyStdout();
 
 }}
 

@@ -3,11 +3,18 @@
 #ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
+#else
+#include <unistd.h>
 #endif
+
 #include "lz4mt_io_cstdio.h"
 #include "lz4mt.h"
 
 namespace {
+std::string stdinFilename = "stdin";
+std::string stdoutFilename = "stdout";
+std::string nullFilename = "null";
+
 bool isNullFp(const Lz4MtContext* ctx, FILE* fp) {
 	return reinterpret_cast<const FILE*>(ctx) == fp;
 }
@@ -47,7 +54,7 @@ FILE* getStdout() {
 
 namespace Lz4Mt { namespace Cstdio {
 bool fileExist(const std::string& filename) {
-	if("stdin" == filename || "stdout" == filename) {
+	if(stdinFilename == filename || stdoutFilename == filename) {
 		return false;
 	} else {
 		FILE* fp = fopen_(filename.c_str(), "rb");
@@ -66,7 +73,7 @@ FILE* writeCtx(const Lz4MtContext* ctx) {
 
 bool openIstream(Lz4MtContext* ctx, const std::string& filename) {
 	FILE* fp = nullptr;
-	if("stdin" == filename) {
+	if(stdinFilename == filename) {
 		fp = getStdin();
 	} else {
 		fp = fopen_(filename.c_str(), "rb");
@@ -79,7 +86,7 @@ bool openOstream(Lz4MtContext* ctx, const std::string& filename, bool nullWrite)
 	FILE* fp = nullptr;
 	if(nullWrite) {
 		fp = reinterpret_cast<FILE*>(ctx);
-	} else if("stdout" == filename) {
+	} else if(stdoutFilename == filename) {
 		fp = getStdout();
 	} else {
 		fp = fopen_(filename.c_str(), "wb");
@@ -164,6 +171,34 @@ uint64_t getFilesize(const std::string& fileanme) {
 	} else {
 		return static_cast<uint64_t>(s.st_size);
 	}
+}
+
+std::string getStdinFilename() {
+	return stdinFilename;
+}
+
+std::string getStdoutFilename() {
+	return stdoutFilename;
+}
+
+std::string getNullFilename() {
+	return nullFilename;
+}
+
+bool isAttyStdin() {
+#if defined(_MSC_VER)
+	return 0 != _isatty(_fileno(stdin));
+#else
+	return 0 != isatty(fileno(stdin));
+#endif
+}
+
+bool isAttyStdout() {
+#if defined(_MSC_VER)
+	return 0 != _isatty(_fileno(stdout));
+#else
+	return 0 != isatty(fileno(stdout));
+#endif
 }
 
 }} // namespace Cstdio, Lz4Mt

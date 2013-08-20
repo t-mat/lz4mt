@@ -41,7 +41,7 @@ endif
 
 ##
 run: $(TSETUP) $(OUTPUT)
-	-./$(OUTPUT) --help
+	-./$(OUTPUT) -H
 
 $(OUTPUT): $(OBJS) $(LZ4_OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)

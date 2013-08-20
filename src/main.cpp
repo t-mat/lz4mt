@@ -24,10 +24,12 @@
 namespace {
 
 const char LZ4MT_EXTENSION[] = ".lz4";
+const char LZ4MT_UNLZ4[] = "unlz4";
+const char LZ4MT_LZ4CAT[] = "lz4cat";
 
 const char usage[] = 
 	"usage :\n"
-	"  lz4mt [switch...] <input> [output]\n"
+	"  lz4mt [switch...] [input] [output]\n"
 	"switch :\n"
 	"  -c0/-c  : Compress (lz4) (default)\n"
 	"  -c1/-hc : Compress (lz4hc)\n"
@@ -52,7 +54,13 @@ const char usage_advanced[] =
 ;
 
 struct Option {
-	Option(int argc, char* argv[])
+	Option(int argc, char* argv[]
+		   , std::string stdinFilename
+		   , std::string stdoutFilename
+		   , std::string nullFilename
+		   , std::function<bool(void)> isAttyStdout
+		   , std::function<bool(void)> isAttyStdin
+		   )
 		: error(false)
 		, exitFlag(false)
 		, compMode(CompMode::COMPRESS_C0)
@@ -62,9 +70,18 @@ struct Option {
 		, outFilename()
 		, nullWrite(false)
 		, overwrite(false)
+		, silence(false)
 		, benchmark()
+		, errorString()
 	{
-		static const std::string nullFilename = "null";
+		if(strstr(argv[0], LZ4MT_UNLZ4)) {
+			silence = true;
+			compMode = CompMode::DECOMPRESS;
+		} else if(strstr(argv[0], LZ4MT_LZ4CAT)) {
+			silence = true;
+			compMode = CompMode::DECOMPRESS;
+			outFilename = stdoutFilename;
+		}
 
 		for(int iarg = 1; iarg < argc && !error && !exitFlag; ++iarg) {
 			const auto a = argv[iarg];
@@ -81,14 +98,15 @@ struct Option {
 				} else if(outFilename.empty()) {
 					outFilename = a;
 				} else {
-					std::cerr << "ERROR: Bad argument [" << a << "]\n";
+					errorString += "ERROR: Bad argument ["
+								   + std::string(a) + "]\n";
 					error = true;
 				}
 			} else if('-' == a0 && 0 == a1) {
 				if(inpFilename.empty()) {
-					inpFilename = "stdin";
+					inpFilename = stdinFilename;
 				} else {
-					outFilename = "stdout";
+					outFilename = stdoutFilename;
 				}
 			} else {
 				for(int i = 1; 0 != a[i] && !error && !exitFlag;) {
@@ -191,8 +209,52 @@ struct Option {
 			}
 		}
 
-		if(cmpFilename(nullFilename, outFilename)) {
-			nullWrite = true;
+		if(!error && !exitFlag) {
+			if(inpFilename.empty()) {
+				inpFilename = stdinFilename;
+			}
+
+			if(outFilename.empty()) {
+				if(isCompress()) {
+					if(cmpFilename(stdinFilename, inpFilename)) {
+						outFilename = stdoutFilename;
+						silence = true;
+					} else {
+						outFilename = inpFilename + LZ4MT_EXTENSION;
+					}
+				} else {
+					errorString += "ERROR: No output filename\n";
+					error = true;
+				}
+			}
+
+			if(cmpFilename(nullFilename, outFilename)) {
+				nullWrite = true;
+			}
+		}
+
+		if(!error && !exitFlag) {
+			if(   cmpFilename(stdinFilename, inpFilename)
+			   && cmpFilename(stdoutFilename, outFilename)
+			) {
+				silence = true;
+			}
+		}
+
+		if(!error && !exitFlag) {
+			if(   (   isCompress()
+				   && cmpFilename(stdoutFilename, outFilename)
+				   && isAttyStdout()
+				  )
+			   || (   !isCompress()
+				   && cmpFilename(stdinFilename, inpFilename)
+				   && isAttyStdin()
+				  )
+			) {
+				silence = false;
+				showBadUsage();
+				error = true;
+			}
 		}
 	}
 
@@ -215,26 +277,31 @@ struct Option {
 #endif
 	}
 
-	static void showUsage(bool advanced = false) {
-		std::cerr << usage;
+	void showUsage(bool advanced = false) {
+		errorString += usage;
 		if(advanced) {
-			std::cerr << usage_advanced;
+			errorString += usage_advanced;
 		}
 	}
 
-	static void showBadUsage(char c0 = 0, char c1 = 0) {
-		std::cerr << "Wrong parameters";
+	void showBadUsage(char c0 = 0, char c1 = 0) {
 		if(c0 || c1) {
-			std::cerr << "'";
+			errorString += "Wrong parameters '";
 			if(c0) {
-				std::cerr << c0;
+				errorString +=  c0;
 			}
 			if(c1) {
-				std::cerr << c1;
+				errorString +=  c1;
 			}
-			std::cerr << "'";
+			errorString +=  "'\n";
 		}
 		showUsage(false);
+	}
+
+	void display(const std::string& message) {
+		if(!silence) {
+			std::cerr << message;
+		}
 	}
 
 	enum class CompMode {
@@ -252,7 +319,9 @@ struct Option {
 	std::string outFilename;
 	bool nullWrite;
 	bool overwrite;
+	bool silence;
 	Lz4Mt::Benchmark benchmark;
+	std::string errorString;
 };
 
 } // anonymous namespace
@@ -264,11 +333,19 @@ int main(int argc, char* argv[]) {
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
 	using namespace Lz4Mt::Cstdio;
-	Option opt(argc, argv);
+	Option opt(argc, argv
+			   , getStdinFilename()
+			   , getStdoutFilename()
+			   , getNullFilename()
+			   , isAttyStdout
+			   , isAttyStdin
+	);
 
 	if(opt.exitFlag) {
+		opt.display(opt.errorString);
 		exit(EXIT_SUCCESS);
 	} else if(opt.error) {
+		opt.display(opt.errorString);
 		exit(EXIT_FAILURE);
 	}
 
@@ -293,48 +370,30 @@ int main(int argc, char* argv[]) {
 		exit(EXIT_SUCCESS);
 	}
 
-	if(opt.inpFilename.empty()) {
-		std::cerr << "ERROR: No input filename\n";
-		exit(EXIT_FAILURE);
-	}
-
-	if(opt.outFilename.empty()) {
-		if(opt.isCompress()) {
-			if("stdin" == opt.inpFilename) {
-				opt.outFilename = "stdout";
-			} else {
-				opt.outFilename = opt.inpFilename + LZ4MT_EXTENSION;
-			}
-		} else {
-			std::cerr << "ERROR: No output filename\n";
-			exit(EXIT_FAILURE);
-		}
-	}
-
 	if(!openIstream(&ctx, opt.inpFilename)) {
-		std::cerr << "ERROR: Can't open input file "
-				  << "[" << opt.inpFilename << "]\n";
+		opt.display("ERROR: Can't open input file ["
+					+ opt.inpFilename + "]\n");
 		exit(EXIT_FAILURE);
 	}
 
 	if(!opt.nullWrite && !opt.overwrite && fileExist(opt.outFilename)) {
 		const int ch = [&]() -> int {
-			if("stdin" != opt.inpFilename) {
-				std::cerr << "Overwrite [y/N]? ";
+			if(!opt.silence) {
+				opt.display("Overwrite [y/N]? ");
 				return std::cin.get();
 			} else {
 				return 0;
 			}
 		} ();
 		if('y' != ch && 'Y' != ch) {
-			std::cerr << "Abort: " << opt.outFilename << " already exists\n";
+			opt.display("Abort: " + opt.outFilename + " already exists\n");
 			exit(EXIT_FAILURE);
 		}
 	}
 
 	if(!openOstream(&ctx, opt.outFilename, opt.nullWrite)) {
-		std::cerr << "ERROR: Can't open output file ["
-				  << opt.outFilename << "]\n";
+		opt.display("ERROR: Can't open output file ["
+					+ opt.outFilename + "]\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -346,7 +405,7 @@ int main(int argc, char* argv[]) {
 			return lz4mtDecompress(&ctx, &opt.sd);
 		} else {
 			assert(0);
-			std::cerr << "ERROR: You must specify a switch -c or -d\n";
+			opt.display("ERROR: You must specify a switch -c or -d\n");
 			return LZ4MT_RESULT_BAD_ARG;
 		}
 	} ();
@@ -356,10 +415,10 @@ int main(int argc, char* argv[]) {
 	closeIstream(&ctx);
 
 	const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
-	std::cerr << "Total time: " << dt << "sec\n";
+	opt.display("Total time: " + std::to_string(dt) + "sec\n");
 
 	if(LZ4MT_RESULT_OK != e) {
-		std::cerr << "ERROR: " << lz4mtResultToString(e) << "\n";
+		opt.display("ERROR: " + std::string(lz4mtResultToString(e)) + "\n");
 		exit(EXIT_FAILURE);
 	}
 
