@@ -66,69 +66,128 @@ struct Option {
 	{
 		static const std::string nullFilename = "null";
 
-		std::map<std::string, std::function<void ()>> opts;
-		opts["-c0"] =
-		opts["-c" ] = [&] { compMode = CompMode::COMPRESS_C0; };
-		opts["-c1"] =
-		opts["-hc"] = [&] { compMode = CompMode::COMPRESS_C1; };
-		opts["-d" ] = [&] { compMode = CompMode::DECOMPRESS; };
-		opts["-y" ] = [&] { overwrite = true; };
-		opts["-s" ] = [&] { mode |= LZ4MT_MODE_SEQUENTIAL; };
-		opts["-m" ] = [&] { mode &= ~LZ4MT_MODE_SEQUENTIAL; };
-		opts["--help"] = opts["-h" ] = opts["/?" ] = [&] {
-			std::cerr << usage;
-			exitFlag = true;
-		};
-		opts["-H" ] = [&] {
-			std::cerr << usage << usage_advanced;
-			exitFlag = true;
-		};
-		for(int i = 4; i <= 7; ++i) {
-			opts[std::string("-B") + std::to_string(i)] = [&, i] {
-				sd.bd.blockMaximumSize = static_cast<char>(i);
-			};
-		}
-		opts["-BX"] = [&] { sd.flg.blockChecksum = 1; };
-		opts["-Sx"] = [&] { sd.flg.streamChecksum = 0; };
-		opts["-t" ] = [&] {
-			compMode = CompMode::DECOMPRESS;
-			outFilename = nullFilename;
-		};
-
-		for(int i = 0; i <= 1; ++i) {
-			opts["-b" + std::to_string(i)] = [&, i] {
-				if(i == 0) {
-					compMode = CompMode::COMPRESS_C0;
-				} else {
-					compMode = CompMode::COMPRESS_C1;
-				}
-				benchmark.enable = true;
-			};
-		}
-		for(int i = 1; i <= 9; ++i) {
-			opts[std::string("-i") + std::to_string(i)] = [&, i] {
-				benchmark.nIter = i;
-				benchmark.enable = true;
-			};
-		}
-
 		for(int iarg = 1; iarg < argc && !error && !exitFlag; ++iarg) {
-			const auto a = std::string(argv[iarg]);
-			const auto i = opts.find(a);
-			if(opts.end() != i) {
-				i->second();
-			} else if(a[0] == '-') {
-				std::cerr << "ERROR: bad switch [" << a << "]\n";
-				error = true;
-			} else if(benchmark.enable) {
-				benchmark.files.push_back(a);
-			} else if(inpFilename.empty()) {
-				inpFilename = a;
-			} else if(outFilename.empty()) {
-				outFilename = a;
+			const auto a = argv[iarg];
+			const auto a0 = a[0];
+			const auto a1 = a[1];
+
+			if(0 == a0) {
+				continue;
+			} else if('-' != a0) {
+				if(benchmark.enable) {
+					benchmark.files.push_back(a);
+				} else if(inpFilename.empty()) {
+					inpFilename = a;
+				} else if(outFilename.empty()) {
+					outFilename = a;
+				} else {
+					std::cerr << "ERROR: Bad argument [" << a << "]\n";
+					error = true;
+				}
+			} else if('-' == a0 && 0 == a1) {
+				if(inpFilename.empty()) {
+					inpFilename = "stdin";
+				} else {
+					outFilename = "stdout";
+				}
 			} else {
-				std::cerr << "ERROR: Bad argument [" << a << "]\n";
-				error = true;
+				for(int i = 1; 0 != a[i] && !error && !exitFlag;) {
+					const auto getif = [&] (char c0) {
+						const auto x0 = a[i];
+						if(x0 == c0) {
+							++i;
+							return true;
+						} else {
+							return false;
+						}
+					};
+
+					const auto getif2 = [&] (char c0, char c1) {
+						const auto x0 = a[i];
+						const auto x1 = x0 ? a[i+1] : x0;
+						if(x0 == c0 && x1 == c1) {
+							i += 2;
+							return true;
+						} else {
+							return false;
+						}
+					};
+
+					if(getif('H')) {						// -H
+						showUsage(true);
+						exitFlag = true;
+					} else if(getif2('c', '0')) {			// -c0
+						compMode = CompMode::COMPRESS_C0;
+					} else if(getif2('c', '1')) {			// -c1
+						compMode = CompMode::COMPRESS_C1;
+					} else if(getif('c')) {					// -c?
+						// NOTE: no bad usage
+					} else if(getif2('h', 'c')) {			// -hc
+						compMode = CompMode::COMPRESS_C1;
+					} else if(getif('h')) {					// -h?
+						showUsage(true);
+						exitFlag = true;
+					} else if(getif('d')) {					// -d
+						compMode = CompMode::DECOMPRESS;
+					} else if(getif('t')) {					// -t
+						compMode = CompMode::DECOMPRESS;
+						outFilename = nullFilename;
+					} else if(getif('B')) {
+						for(;;) {
+							if(getif('4')) {				// -B4
+								sd.bd.blockMaximumSize = 4;
+							} else if(getif('5')) {			// -B5
+								sd.bd.blockMaximumSize = 5;
+							} else if(getif('6')) {			// -B6
+								sd.bd.blockMaximumSize = 6;
+							} else if(getif('7')) {			// -B7
+								sd.bd.blockMaximumSize = 7;
+//							} else if(getif('D')) {			// -BD
+//								// TODO : Implement
+							} else if(getif('X')) {			// -BX
+								sd.flg.blockChecksum = 1;
+							} else {						// -B?
+								// NOTE: no bad usage
+								break;
+							}
+						}
+					} else if(getif2('S', 'x')) {			// -Sx
+						sd.flg.streamChecksum = 0;
+					} else if(getif('S')) {					// -S?
+						showBadUsage(a[i], a[i+1]);
+						error = true;
+					} else if(getif2('b', '0')) {			// -b0
+						compMode = CompMode::COMPRESS_C0;
+						benchmark.enable = true;
+					} else if(getif2('b', '1')) {			// -b1
+						compMode = CompMode::COMPRESS_C1;
+						benchmark.enable = true;
+					} else if(getif('b')) {					// -b?
+						// NOTE: no bad usage
+					} else if(getif('i')) {
+						for(char x = '1'; x <= '9'; ++x) {	// -i[1-9]
+							if(getif(x)) {
+								benchmark.nIter = x - '0';
+								benchmark.enable = true;
+								break;
+							}
+						}
+						// NOTE: no bad usage
+					} else if(getif('y')) {					// -y
+						overwrite = true;
+//					} else if(getif('p')) {					// -p
+//						// Pause at the end (benchmark only)
+//						// (hidden option)
+//					} else if(getif('v')) {					// -v
+//						// Verbose mode
+//					} else if(getif('l')) {					// -l
+//						// Use Legacy format (hidden option)
+					} else {
+						// Unrecognised command
+						showBadUsage(a[i]);
+						error = true;
+					}
+				}
 			}
 		}
 
@@ -154,6 +213,28 @@ struct Option {
 #else
 		return 0 == strcmp(pLhs, pRhs);
 #endif
+	}
+
+	static void showUsage(bool advanced = false) {
+		std::cerr << usage;
+		if(advanced) {
+			std::cerr << usage_advanced;
+		}
+	}
+
+	static void showBadUsage(char c0 = 0, char c1 = 0) {
+		std::cerr << "Wrong parameters";
+		if(c0 || c1) {
+			std::cerr << "'";
+			if(c0) {
+				std::cerr << c0;
+			}
+			if(c1) {
+				std::cerr << c1;
+			}
+			std::cerr << "'";
+		}
+		showUsage(false);
 	}
 
 	enum class CompMode {
