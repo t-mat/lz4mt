@@ -43,7 +43,7 @@ char flgToChar(const Lz4MtFlg& flg) {
 		| ((flg.streamChecksum    & 1) << 2)
 		| ((flg.streamSize        & 1) << 3)
 		| ((flg.blockChecksum     & 1) << 4)
-		| ((flg.blockIndependance & 1) << 5)
+		| ((flg.blockIndependence & 1) << 5)
 		| ((flg.versionNumber     & 3) << 6)
 	);
 }
@@ -55,7 +55,7 @@ Lz4MtFlg charToFlg(char c) {
 	flg.streamChecksum		= (c >> 2) & 1;
 	flg.streamSize			= (c >> 3) & 1;
 	flg.blockChecksum		= (c >> 4) & 1;
-	flg.blockIndependance	= (c >> 5) & 1;
+	flg.blockIndependence	= (c >> 5) & 1;
 	flg.versionNumber		= (c >> 6) & 3;
 	return flg;
 }
@@ -118,7 +118,7 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 	if(0 != sd->flg.reserved1) {
 		return LZ4MT_RESULT_INVALID_HEADER;
 	}
-	if(0 == sd->flg.blockIndependance) {
+	if(0 == sd->flg.blockIndependence) {
 		///	@TODO: Implement Block Dependency. lz4: r96 - https://code.google.com/p/lz4/source/detail?r=96
 		return LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET;
 	}
@@ -272,7 +272,7 @@ lz4mtInitStreamDescriptor()
 	e.flg.reserved1			= 0;
 	e.flg.streamSize		= 0;
 	e.flg.blockChecksum		= 0;
-	e.flg.blockIndependance	= 1;
+	e.flg.blockIndependence	= 1;
 	e.flg.versionNumber		= 1;
 
 	e.bd.reserved3			= 0;

@@ -95,7 +95,7 @@ struct Lz4MtFlg {
 	char	streamChecksum;		// bit[2]
 	char	streamSize;			// bit[3]
 	char	blockChecksum;		// bit[4]
-	char	blockIndependance;	// bit[5]
+	char	blockIndependence;	// bit[5]
 	char	versionNumber;		// bit[6,7]
 };
 typedef struct Lz4MtFlg Lz4MtFlg;
