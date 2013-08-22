@@ -24,6 +24,7 @@ std::string getStdoutFilename();
 std::string getNullFilename();
 bool isAttyStdin();
 bool isAttyStdout();
+bool compareFilename(const std::string& lhs, const std::string& rhs);
 
 }}
 

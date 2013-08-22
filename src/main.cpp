@@ -1,4 +1,3 @@
-#include <cassert>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -14,11 +13,9 @@
 #endif
 #include "lz4.h"
 #include "lz4hc.h"
-#include "xxhash.h"
 #include "lz4mt.h"
 #include "lz4mt_benchmark.h"
 #include "lz4mt_io_cstdio.h"
-#include "test_clock.h"
 
 
 namespace {
@@ -53,14 +50,20 @@ const char usage_advanced[] =
 	"  output  : can be 'stdout'(pipe) or a filename or 'null'\n"
 ;
 
+typedef std::function<bool(void)> AttyFunc;
+typedef std::function<bool(const std::string&, const std::string&)> CmpFunc;
+
 struct Option {
-	Option(int argc, char* argv[]
-		   , std::string stdinFilename
-		   , std::string stdoutFilename
-		   , std::string nullFilename
-		   , std::function<bool(void)> isAttyStdout
-		   , std::function<bool(void)> isAttyStdin
-		   )
+	Option(
+		  int argc
+		, char* argv[]
+		, std::string stdinFilename
+		, std::string stdoutFilename
+		, std::string nullFilename
+		, AttyFunc isAttyStdout
+		, AttyFunc isAttyStdin
+		, CmpFunc cmpFilename
+	)
 		: error(false)
 		, exitFlag(false)
 		, compMode(CompMode::COMPRESS_C0)
@@ -273,16 +276,6 @@ struct Option {
 		return CompMode::DECOMPRESS == compMode;
 	}
 
-	static bool cmpFilename(const std::string& lhs, const std::string& rhs) {
-		const auto pLhs = lhs.c_str();
-		const auto pRhs = rhs.c_str();
-#if defined(_WIN32)
-		return 0 == _stricmp(pLhs, pRhs);
-#else
-		return 0 == strcmp(pLhs, pRhs);
-#endif
-	}
-
 	void showUsage(bool advanced = false) {
 		errorString += usage;
 		if(advanced) {
@@ -345,6 +338,7 @@ int main(int argc, char* argv[]) {
 			   , getNullFilename()
 			   , isAttyStdout
 			   , isAttyStdin
+			   , compareFilename
 	);
 
 	if(opt.exitFlag) {
@@ -403,25 +397,19 @@ int main(int argc, char* argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	const auto t0 = Clock::now();
 	const auto e = [&]() -> Lz4MtResult {
 		if(opt.isCompress()) {
 			return lz4mtCompress(&ctx, &opt.sd);
 		} else if(opt.isDecompress()) {
 			return lz4mtDecompress(&ctx, &opt.sd);
 		} else {
-			assert(0);
 			opt.display("lz4mt: You must specify a switch -c or -d\n");
 			return LZ4MT_RESULT_BAD_ARG;
 		}
 	} ();
-	const auto t1 = Clock::now();
 
 	closeOstream(&ctx);
 	closeIstream(&ctx);
-
-	const auto dt = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
-	opt.display("Total time: " + std::to_string(dt) + "sec\n");
 
 	if(LZ4MT_RESULT_OK != e) {
 		opt.display("lz4mt: " + std::string(lz4mtResultToString(e)) + "\n");

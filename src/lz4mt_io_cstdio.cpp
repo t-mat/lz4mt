@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <string.h>
 #ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
@@ -198,6 +199,16 @@ bool isAttyStdout() {
 	return 0 != _isatty(_fileno(stdout));
 #else
 	return 0 != isatty(fileno(stdout));
+#endif
+}
+
+bool compareFilename(const std::string& lhs, const std::string& rhs) {
+	const auto l = lhs.c_str();
+	const auto r = rhs.c_str();
+#if defined(_WIN32)
+	return 0 == _stricmp(l, r);
+#else
+	return 0 == strcmp(l, r);
 #endif
 }
 
