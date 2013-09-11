@@ -4,6 +4,9 @@
 #include <string>
 #include <string.h>
 #include <vector>
+#include <algorithm>
+#include <deque>
+#include <cctype>
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -44,10 +47,12 @@ const char usage_advanced[] =
 	" -b#      : benchmark files, using # [0-1] compression level\n"
 	" -i#      : iteration loops [1-9](default : 3), benchmark mode"
 	             " only\n"
-	"  -s      : Single thread mode\n"
-	"  -m      : Multi thread mode (default)\n"
 	"  input   : can be 'stdin' (pipe) or a filename\n"
 	"  output  : can be 'stdout'(pipe) or a filename or 'null'\n"
+
+	"\nlz4mt exclusive options :\n"
+	" --lz4mt-thread 0 : Multi thread mode (default)\n"
+	" --lz4mt-thread 1 : Single thread mode\n"
 ;
 
 typedef std::function<bool(void)> AttyFunc;
@@ -86,8 +91,54 @@ struct Option {
 			outFilename = stdoutFilename;
 		}
 
-		for(int iarg = 1; iarg < argc && !error && !exitFlag; ++iarg) {
-			const auto a = argv[iarg];
+		std::deque<std::string> args;
+		for(int iarg = 1; iarg < argc; ++iarg) {
+			args.push_back(argv[iarg]);
+		}
+
+		auto hasArg = [&]() {
+			return !args.empty();
+		};
+
+		auto getArg = [&]() -> std::string {
+			if(hasArg()) {
+				auto a = args.front();
+				args.pop_front();
+				return a;
+			} else {
+				return std::string("");
+			}
+		};
+
+		auto isDigits = [](const std::string& s) {
+			return std::all_of(std::begin(s), std::end(s)
+							   , static_cast<int(*)(int)>(std::isdigit));
+		};
+
+		std::map<std::string, std::function<bool ()>> opts;
+		opts["--lz4mt-thread"] = [&]() -> bool {
+			auto a = getArg();
+			if(isDigits(a)) {
+				const auto v = atoi(a.c_str());
+				switch(v) {
+				default:
+				case 0:
+					mode &= ~LZ4MT_MODE_SEQUENTIAL;
+					break;
+				case 1:
+					mode |= LZ4MT_MODE_SEQUENTIAL;
+					break;
+				}
+				return true;
+			} else {
+				errorString += "lz4mt: Bad argument for --lz4mt-thread ["
+							   + std::string(a) + "]\n";
+				return false;
+			}
+		};
+
+		while(hasArg() && !error && !exitFlag) {
+			const auto a = getArg();
 			const auto a0 = a[0];
 			const auto a1 = a[1];
 
@@ -111,9 +162,22 @@ struct Option {
 				} else {
 					outFilename = stdoutFilename;
 				}
+			} else if('-' == a0 && '-' == a1) {
+				//	long option
+				const auto it = opts.find(a);
+				if(opts.end() == it) {
+					errorString += "lz4mt: Bad argument ["
+								   + std::string(a) + "]\n";
+					error = true;
+				} else {
+					const auto b = it->second();
+					if(!b) {
+						error = true;
+					}
+				}
 			} else {
 				for(int i = 1; 0 != a[i] && !error && !exitFlag;) {
-					const auto getif = [&] (char c0) {
+					const auto getif = [&] (char c0) -> bool {
 						const auto x0 = a[i];
 						if(x0 == c0) {
 							++i;
@@ -123,7 +187,7 @@ struct Option {
 						}
 					};
 
-					const auto getif2 = [&] (char c0, char c1) {
+					const auto getif2 = [&] (char c0, char c1) -> bool {
 						const auto x0 = a[i];
 						const auto x1 = x0 ? a[i+1] : x0;
 						if(x0 == c0 && x1 == c1) {
