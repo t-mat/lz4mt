@@ -51,8 +51,8 @@ const char usage_advanced[] =
 	"  output  : can be 'stdout'(pipe) or a filename or 'null'\n"
 
 	"\nlz4mt exclusive options :\n"
-	" --lz4mt-thread 0 : Multi thread mode (default)\n"
-	" --lz4mt-thread 1 : Single thread mode\n"
+	" --lz4mt-thread=0 : Multi thread mode (default)\n"
+	" --lz4mt-thread=1 : Single thread mode\n"
 ;
 
 typedef std::function<bool(void)> AttyFunc;
@@ -96,28 +96,39 @@ struct Option {
 			args.push_back(argv[iarg]);
 		}
 
-		auto hasArg = [&]() {
-			return !args.empty();
-		};
-
-		auto getArg = [&]() -> std::string {
-			if(hasArg()) {
-				auto a = args.front();
-				args.pop_front();
-				return a;
-			} else {
-				return std::string("");
-			}
-		};
-
 		auto isDigits = [](const std::string& s) {
 			return std::all_of(std::begin(s), std::end(s)
 							   , static_cast<int(*)(int)>(std::isdigit));
 		};
 
-		std::map<std::string, std::function<bool ()>> opts;
-		opts["--lz4mt-thread"] = [&]() -> bool {
-			auto a = getArg();
+		std::map<std::string, std::function<bool (const std::string&)>> opts;
+
+		const char optdelim = '=';
+
+		auto getOptionName = [&](const std::string& s) -> std::string {
+			const auto pos = s.find(optdelim);
+			if(std::string::npos != pos) {
+				return s.substr(0, pos);
+			} else {
+				return s;
+			}
+		};
+
+		auto getOptionArg = [&](const std::string& s) -> std::string {
+			const auto pos = s.find(optdelim);
+			if(std::string::npos != pos) {
+				return s.substr(pos+1);
+			} else {
+				return "";
+			}
+		};
+
+		auto findOption = [&](const std::string& s) {
+			return opts.find(getOptionName(s));
+		};
+
+		opts["--lz4mt-thread"] = [&](const std::string& arg) -> bool {
+			auto a = getOptionArg(arg);
 			if(isDigits(a)) {
 				const auto v = atoi(a.c_str());
 				switch(v) {
@@ -137,8 +148,9 @@ struct Option {
 			}
 		};
 
-		while(hasArg() && !error && !exitFlag) {
-			const auto a = getArg();
+		while(!args.empty() && !error && !exitFlag) {
+			const auto a = args.front();
+			args.pop_front();
 			const auto a0 = a[0];
 			const auto a1 = a[1];
 
@@ -164,13 +176,13 @@ struct Option {
 				}
 			} else if('-' == a0 && '-' == a1) {
 				//	long option
-				const auto it = opts.find(a);
+				const auto it = findOption(a);
 				if(opts.end() == it) {
 					errorString += "lz4mt: Bad argument ["
 								   + std::string(a) + "]\n";
 					error = true;
 				} else {
-					const auto b = it->second();
+					const auto b = it->second(a);
 					if(!b) {
 						error = true;
 					}
