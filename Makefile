@@ -43,6 +43,10 @@ endif
 run: $(TSETUP) $(OUTPUT)
 	-./$(OUTPUT) -H
 
+debug: CFLAGS   += -DDEBUG -g -O0
+debug: CXXFLAGS += -DDEBUG -g -O0
+debug: $(TSETUP) $(OUTPUT)
+
 $(OUTPUT): $(OBJS) $(LZ4_OBJS)
 	$(LD) -o $@ $^ $(LDFLAGS)
 
@@ -55,9 +59,11 @@ obj/%.o: lz4/%.c
 setup:
 	-@mkdir $(OBJDIR)
 
-clean:
+clean: clean-output
 	-@rm -f *.linux.lz4.c*
 	-@rm -f *.linux.lz4.d*
+
+clean-output:
 	-@rm -f $(OBJDIR)/*
 	-@rmdir $(OBJDIR) 2> /dev/null || true
 	-@rm -f $(OUTPUT)
@@ -69,3 +75,12 @@ test:
 	./$(OUTPUT) -c1 $(ENWIK) $(ENWIK).linux.lz4.c1
 	./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
 	./$(OUTPUT) -d $(ENWIK).linux.lz4.c1 $(ENWIK).linux.lz4.d1
+	md5sum $(ENWIK) $(ENWIK).linux.lz4.d* $(ENWIK).linux.lz4.c*
+
+test-valgrind-decompress: clean-output setup debug
+	-@rm -f *.linux.lz4.c*
+	-@rm -f *.linux.lz4.d*
+	./$(OUTPUT) -c0 -y $(ENWIK) $(ENWIK).linux.lz4.c0
+	valgrind --leak-check=full --tool=memcheck ./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
+	valgrind --tool=memcheck ./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
+	md5sum $(ENWIK) $(ENWIK).linux.lz4.d* $(ENWIK).linux.lz4.c*
