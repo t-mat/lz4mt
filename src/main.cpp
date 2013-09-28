@@ -399,14 +399,8 @@ struct Option {
 	std::string errorString;
 };
 
-} // anonymous namespace
 
-
-
-int main(int argc, char* argv[]) {
-#if defined(_MSC_VER) && defined(_DEBUG)
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-#endif
+int lz4mtCommandLine(int argc, char* argv[]) {
 	using namespace Lz4Mt::Cstdio;
 	Option opt(argc, argv
 			   , getStdinFilename()
@@ -419,10 +413,10 @@ int main(int argc, char* argv[]) {
 
 	if(opt.exitFlag) {
 		opt.display(opt.errorString);
-		exit(EXIT_SUCCESS);
+		return EXIT_SUCCESS;
 	} else if(opt.error) {
 		opt.display(opt.errorString);
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	Lz4MtContext ctx = lz4mtInitContext();
@@ -443,13 +437,13 @@ int main(int argc, char* argv[]) {
 		opt.benchmark.closeIstream	= closeIstream;
 		opt.benchmark.getFilesize	= getFilesize;
 		opt.benchmark.measure(ctx, opt.sd);
-		exit(EXIT_SUCCESS);
+		return EXIT_SUCCESS;
 	}
 
 	if(!openIstream(&ctx, opt.inpFilename)) {
 		opt.display("lz4mt: Can't open input file ["
 					+ opt.inpFilename + "]\n");
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	if(!opt.nullWrite && !opt.overwrite && fileExist(opt.outFilename)) {
@@ -463,14 +457,14 @@ int main(int argc, char* argv[]) {
 		} ();
 		if('y' != ch && 'Y' != ch) {
 			opt.display("lz4mt: " + opt.outFilename + " already exists\n");
-			exit(EXIT_FAILURE);
+			return EXIT_FAILURE;
 		}
 	}
 
 	if(!openOstream(&ctx, opt.outFilename, opt.nullWrite)) {
 		opt.display("lz4mt: Can't open output file ["
 					+ opt.outFilename + "]\n");
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	const auto e = [&]() -> Lz4MtResult {
@@ -489,12 +483,25 @@ int main(int argc, char* argv[]) {
 
 	if(LZ4MT_RESULT_OK != e) {
 		opt.display("lz4mt: " + std::string(lz4mtResultToString(e)) + "\n");
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
-#if defined(_MSC_VER) && defined(_DEBUG)
 	return EXIT_SUCCESS;
+}
+
+} // anonymous namespace
+
+
+int main(int argc, char* argv[]) {
+#if defined(_MSC_VER) && defined(_DEBUG)
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
+
+	const auto exitCode = lz4mtCommandLine(argc, argv);
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+	return exitCode;
 #else
-	exit(EXIT_SUCCESS);
+	exit(exitCode);
 #endif
 }
