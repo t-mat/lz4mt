@@ -30,6 +30,7 @@ LZ4_SRCS	= lz4/lz4.c lz4/lz4hc.c lz4/xxhash.c
 LZ4_OBJS	= $(addprefix obj/,$(notdir $(LZ4_SRCS:.c=.o)))
 
 ENWIK		= enwik8
+VALGRIND	= valgrind
 
 ##
 ifeq ($(wildcard $(OBJDIR)),)
@@ -81,6 +82,7 @@ test-valgrind-decompress: clean-output setup debug
 	-@rm -f *.linux.lz4.c*
 	-@rm -f *.linux.lz4.d*
 	./$(OUTPUT) -c0 -y $(ENWIK) $(ENWIK).linux.lz4.c0
-	valgrind --leak-check=full --tool=memcheck ./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
-	valgrind --tool=memcheck ./$(OUTPUT) -d $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0
+	$(VALGRIND) --leak-check=full --tool=memcheck ./$(OUTPUT) -d -y $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0 2> lz4mt-valgrind-memcheck.log
+	$(VALGRIND) --tool=helgrind ./$(OUTPUT) -d -y $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0 2> lz4mt-valgrind-helgrind.log
+	$(VALGRIND) --tool=drd ./$(OUTPUT) -d -y $(ENWIK).linux.lz4.c0 $(ENWIK).linux.lz4.d0 2> lz4mt-valgrind-drd.log
 	md5sum $(ENWIK) $(ENWIK).linux.lz4.d* $(ENWIK).linux.lz4.c*
