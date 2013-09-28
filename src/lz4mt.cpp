@@ -604,18 +604,17 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 
 		Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
 		Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
-		std::vector<std::future<Lz4MtResult>> futures;
+		std::vector<std::future<void>> futures;
 		Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
 		const auto f = [
 			&futures, &dstBufferPool, &xxhStream, &quit
 			, ctx, nBlockCheckSum, streamChecksum, launch
 		] (int i, Lz4Mt::MemPool::Buffer* srcRaw, bool incompressible, uint32_t blockChecksum)
-		  -> Lz4MtResult
 		{
 			BufferPtr src(srcRaw);
 			if(ctx->error() || quit) {
-				return LZ4MT_RESULT_OK;
+				return;
 			}
 
 			const auto* srcPtr = src->data();
@@ -655,7 +654,8 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					srcPtr, dstPtr, srcSize, static_cast<int>(dstSize));
 				if(decSize < 0) {
 					quit = true;
-					return LZ4MT_RESULT_DECOMPRESS_FAIL;
+					ctx->setResult(LZ4MT_RESULT_DECOMPRESS_FAIL);
+					return;
 				}
 
 				if(i > 0) {
@@ -681,11 +681,11 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 				auto bh = futureBlockHash.get();
 				if(bh != blockChecksum) {
 					quit = true;
-					return LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH;
+					ctx->setResult(LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH);
+					return;
 				}
 			}
-
-			return LZ4MT_RESULT_OK;
+			return;
 		};
 
 		for(int i = 0; !quit && !ctx->readEof(); ++i) {
@@ -731,10 +731,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 		}
 
 		for(auto& e : futures) {
-			const auto r = e.get();
-			if(LZ4MT_RESULT_OK != r) {
-				ctx->setResult(r);
-			}
+			e.wait();
 		}
 
 		if(!ctx->error() && streamChecksum) {
