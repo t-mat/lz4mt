@@ -74,6 +74,7 @@
 #  define SET_BINARY_MODE(file) _setmode(_fileno(file), _O_BINARY)
 #  define IS_CONSOLE(stdStream) _isatty(_fileno(stdStream))
 #else
+#  include <unistd.h>   // isatty
 #  define SET_BINARY_MODE(file)
 #  define IS_CONSOLE(stdStream) isatty(fileno(stdStream))
 #endif
