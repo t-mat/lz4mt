@@ -59,9 +59,10 @@
 #endif
 
 #include "lz4.h"
-#define COMPRESSOR0 LZ4_compress
+#define COMPRESSOR0 LZ4_compress_local
+static int LZ4_compress_local(const char* src, char* dst, int size, int clevel) { (void)clevel; return LZ4_compress(src, dst, size); }
 #include "lz4hc.h"
-#define COMPRESSOR1 LZ4_compressHC
+#define COMPRESSOR1 LZ4_compressHC2
 #define DEFAULTCOMPRESSOR COMPRESSOR0
 
 #include "xxhash.h"
@@ -105,9 +106,13 @@
 #define NBLOOPS    3
 #define TIMELOOP   2000
 
-#define KNUTH      2654435761U
-#define MAX_MEM    (1984<<20)
-#define DEFAULT_CHUNKSIZE   (4<<20)
+#define KB *(1U<<10)
+#define MB *(1U<<20)
+#define GB *(1U<<30)
+
+#define KNUTH               2654435761U
+#define MAX_MEM             (2 GB - 64 MB)
+#define DEFAULT_CHUNKSIZE   (4 MB)
 
 
 //**************************************
@@ -124,7 +129,7 @@ struct chunkParameters
 
 struct compressionParameters
 {
-    int (*compressionFunction)(const char*, char*, int);
+    int (*compressionFunction)(const char*, char*, int, int);
     int (*decompressionFunction)(const char*, char*, int);
 };
 
@@ -133,7 +138,6 @@ struct compressionParameters
 // MACRO
 //**************************************
 #define DISPLAY(...) fprintf(stderr, __VA_ARGS__)
-
 
 
 //**************************************
@@ -151,10 +155,7 @@ void BMK_SetNbIterations(int nbLoops)
     DISPLAY("- %i iterations -\n", nbIterations);
 }
 
-void BMK_SetPause()
-{
-    BMK_pause = 1;
-}
+void BMK_SetPause() { BMK_pause = 1; }
 
 
 //*********************************************************
@@ -202,13 +203,13 @@ static int BMK_GetMilliSpan( int nTimeStart )
 
 static size_t BMK_findMaxMem(U64 requiredMem)
 {
-    size_t step = (64U<<20);   // 64 MB
+    size_t step = (64 MB);
     BYTE* testmem=NULL;
 
-    requiredMem = (((requiredMem >> 25) + 1) << 26);
+    requiredMem = (((requiredMem >> 26) + 1) << 26);
+    requiredMem += 2*step;
     if (requiredMem > MAX_MEM) requiredMem = MAX_MEM;
 
-    requiredMem += 2*step;
     while (!testmem)
     {
         requiredMem -= step;
@@ -244,6 +245,7 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
   int fileIdx=0;
   char* orig_buff;
   struct compressionParameters compP;
+  int cfunctionId;
 
   U64 totals = 0;
   U64 totalz = 0;
@@ -252,7 +254,8 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
 
 
   // Init
-  switch (cLevel)
+  if (cLevel <= 3) cfunctionId = 0; else cfunctionId = 1;
+  switch (cfunctionId)
   {
 #ifdef COMPRESSOR0
   case 0 : compP.compressionFunction = COMPRESSOR0; break;
@@ -289,7 +292,7 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
 
       // Memory allocation & restrictions
       inFileSize = BMK_GetFileSize(inFileName);
-      benchedSize = (size_t) BMK_findMaxMem(inFileSize) / 2;
+      benchedSize = (size_t) BMK_findMaxMem(inFileSize * 2) / 2;
       if ((U64)benchedSize > inFileSize) benchedSize = (size_t)inFileSize;
       if (benchedSize < inFileSize)
       {
@@ -297,9 +300,9 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
       }
 
       // Alloc
-      chunkP = (struct chunkParameters*) malloc(((benchedSize / chunkSize)+1) * sizeof(struct chunkParameters));
+      chunkP = (struct chunkParameters*) malloc(((benchedSize / (size_t)chunkSize)+1) * sizeof(struct chunkParameters));
       orig_buff = (char*)malloc((size_t )benchedSize);
-      nbChunks = (int) (benchedSize / chunkSize) + 1;
+      nbChunks = (int) ((int)benchedSize / chunkSize) + 1;
       maxCompressedChunkSize = LZ4_compressBound(chunkSize);
       compressedBuffSize = nbChunks * maxCompressedChunkSize;
       compressedBuffer = (char*)malloc((size_t )compressedBuffSize);
@@ -374,7 +377,7 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
           while(BMK_GetMilliSpan(milliTime) < TIMELOOP)
           {
             for (chunkNb=0; chunkNb<nbChunks; chunkNb++)
-                chunkP[chunkNb].compressedSize = compP.compressionFunction(chunkP[chunkNb].origBuffer, chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origSize);
+                chunkP[chunkNb].compressedSize = compP.compressionFunction(chunkP[chunkNb].origBuffer, chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origSize, cLevel);
             nbLoops++;
           }
           milliTime = BMK_GetMilliSpan(milliTime);
@@ -395,13 +398,7 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
           while(BMK_GetMilliSpan(milliTime) < TIMELOOP)
           {
             for (chunkNb=0; chunkNb<nbChunks; chunkNb++)
-                //chunkP[chunkNb].origSize = LZ4_decompress_safe(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].compressedSize, chunkSize);
                 chunkP[chunkNb].compressedSize = LZ4_decompress_fast(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].origSize);
-                //chunkP[chunkNb].compressedSize = LZ4_decompress_fast_withPrefix64k(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].origSize);
-                //chunkP[chunkNb].origSize = LZ4_decompress_safe_withPrefix64k(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].compressedSize, chunkSize);
-                //chunkP[chunkNb].origSize = LZ4_decompress_safe_partial(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].compressedSize, chunkSize-5, chunkSize);
-                //chunkP[chunkNb].compressedSize = LZ4_uncompress(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].origSize);
-                //chunkP[chunkNb].origSize = LZ4_uncompress_unknownOutputSize(chunkP[chunkNb].compressedBuffer, chunkP[chunkNb].origBuffer, chunkP[chunkNb].compressedSize, chunkSize);
             nbLoops++;
           }
           milliTime = BMK_GetMilliSpan(milliTime);
@@ -435,7 +432,7 @@ int BMK_benchFile(char** fileNamesTable, int nbFiles, int cLevel)
   if (nbFiles > 1)
         DISPLAY("%-16.16s :%10llu ->%10llu (%5.2f%%), %6.1f MB/s , %6.1f MB/s\n", "  TOTAL", (long long unsigned int)totals, (long long unsigned int)totalz, (double)totalz/(double)totals*100., (double)totals/totalc/1000., (double)totals/totald/1000.);
 
-  if (BMK_pause) { DISPLAY("press enter...\n"); getchar(); }
+  if (BMK_pause) { DISPLAY("\npress enter...\n"); getchar(); }
 
   return 0;
 }

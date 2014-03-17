@@ -1,7 +1,6 @@
 /*
     fuzzer.c - Fuzzer test tool for LZ4
-    Copyright (C) Yann Collet - Andrew Mahone 2012-2013
-    Code started by Andrew Mahone, modified by Yann Collet
+    Copyright (C) Yann Collet - Andrew Mahone 2012-2014
     GPL v2 License
 
     This program is free software; you can redistribute it and/or modify
@@ -26,7 +25,7 @@
 //**************************************
 // Remove Visual warning messages
 //**************************************
-#define _CRT_SECURE_NO_WARNINGS  // fgets
+#define _CRT_SECURE_NO_WARNINGS   // fgets
 
 
 //**************************************
@@ -42,6 +41,10 @@
 //**************************************
 // Constants
 //**************************************
+#ifndef LZ4_VERSION
+#  define LZ4_VERSION ""
+#endif
+
 #define NB_ATTEMPTS (1<<17)
 #define LEN ((1<<15))
 #define SEQ_POW 2
@@ -134,13 +137,15 @@ int main() {
         char userInput[30] = {0};
 #       define FUZ_CHECKTEST(cond, message) if (cond) { printf("Test %i : %s : seed %u, cycle %i \n", testNb, message, seed, attemptNb); goto _output_error; }
 #       define FUZ_DISPLAYTEST              testNb++; printf("%2i\b\b", testNb);
+        void* stateLZ4   = malloc(LZ4_sizeofState());
+        void* stateLZ4HC = malloc(LZ4_sizeofStateHC());
 
-        printf("starting LZ4 fuzzer\n");
+        printf("starting LZ4 fuzzer (%s)\n", LZ4_VERSION);
         printf("Select an Initialisation number (default : random) : ");
         fflush(stdout);
         if ( fgets(userInput, sizeof userInput, stdin) )
         {
-            if ( sscanf(userInput, "%d", &seed) == 1 ) {}
+            if ( sscanf(userInput, "%u", &seed) == 1 ) {}
             else seed = FUZ_GetMilliSpan(timestamp);
         }
         printf("Seed = %u\n", seed);
@@ -151,12 +156,12 @@ int main() {
         for (i = 0; i < 2048; i++)
                 cbuf[FUZ_avail + i] = cbuf[FUZ_avail + 2048 + i] = FUZ_rand(&randState) >> 16;
 
-        for (attemptNb = 0; attemptNb < NB_ATTEMPTS; attemptNb++) 
+        for (attemptNb = 0; attemptNb < NB_ATTEMPTS; attemptNb++)
         {
             int testNb = 0;
 
             printf("\r%7i /%7i   - ", attemptNb, NB_ATTEMPTS);
-            
+
             for (j = 0; j < NUM_SEQ; j++) {
                     seeds[j] = FUZ_rand(&randState) << 8;
                     seeds[j] ^= (FUZ_rand(&randState) >> 8) & 65535;
@@ -176,13 +181,23 @@ int main() {
             // Test compression HC
             FUZ_DISPLAYTEST;   // 1
             ret = LZ4_compressHC_limitedOutput((const char*)buf, (char*)&cbuf[off_full], LEN, FUZ_max);
-            FUZ_CHECKTEST(ret==0, "HC compression failed despite sufficient space");
+            FUZ_CHECKTEST(ret==0, "LZ4_compressHC_limitedOutput() failed despite sufficient space");
             lenHC = ret;
+
+            // Test compression HC using external state
+            FUZ_DISPLAYTEST;   // 1
+            ret = LZ4_compressHC_withStateHC(stateLZ4HC, (const char*)buf, (char*)&cbuf[off_full], LEN);
+            FUZ_CHECKTEST(ret==0, "LZ4_compressHC_withStateHC() failed");
+
+            // Test compression using external state
+            FUZ_DISPLAYTEST;   // 2
+            ret = LZ4_compress_withState(stateLZ4, (const char*)buf, (char*)&cbuf[off_full], LEN);
+            FUZ_CHECKTEST(ret==0, "LZ4_compress_withState() failed");
 
             // Test compression
             FUZ_DISPLAYTEST;   // 2
             ret = LZ4_compress_limitedOutput((const char*)buf, (char*)&cbuf[off_full], LEN, FUZ_max);
-            FUZ_CHECKTEST(ret==0, "compression failed despite sufficient space");
+            FUZ_CHECKTEST(ret==0, "LZ4_compress_limitedOutput() failed despite sufficient space");
             len = ret;
 
             // Test decoding with output size being exactly what's necessary => must work
@@ -239,13 +254,24 @@ int main() {
             // Test compression with output size being exactly what's necessary (should work)
             FUZ_DISPLAYTEST;
             ret = LZ4_compress_limitedOutput((const char*)buf, (char*)&cbuf[FUZ_avail-len], LEN, len);
+            FUZ_CHECKTEST(ret==0, "LZ4_compress_limitedOutput() failed despite sufficient space");
             FUZ_CHECKTEST(!test_canary(&cbuf[FUZ_avail]), "compression overran output buffer");
-            FUZ_CHECKTEST(ret==0, "compression failed despite sufficient space");
+
+            // Test compression with output size being exactly what's necessary and external state (should work)
+            FUZ_DISPLAYTEST;   // 2
+            ret = LZ4_compress_limitedOutput_withState(stateLZ4, (const char*)buf, (char*)&cbuf[off_full], LEN, len);
+            FUZ_CHECKTEST(ret==0, "LZ4_compress_limitedOutput_withState() failed despite sufficient space");
+            FUZ_CHECKTEST(!test_canary(&cbuf[FUZ_avail]), "compression overran output buffer");
 
             // Test HC compression with output size being exactly what's necessary (should work)
             FUZ_DISPLAYTEST;
             ret = LZ4_compressHC_limitedOutput((const char*)buf, (char*)&cbuf[FUZ_avail-len], LEN, lenHC);
-            FUZ_CHECKTEST(ret==0, "HC compression failed despite sufficient space");
+            FUZ_CHECKTEST(ret==0, "LZ4_compressHC_limitedOutput() failed despite sufficient space");
+
+            // Test HC compression with output size being exactly what's necessary (should work)
+            FUZ_DISPLAYTEST;
+            ret = LZ4_compressHC_limitedOutput_withStateHC(stateLZ4HC, (const char*)buf, (char*)&cbuf[FUZ_avail-len], LEN, lenHC);
+            FUZ_CHECKTEST(ret==0, "LZ4_compressHC_limitedOutput_withStateHC() failed despite sufficient space");
 
             // Test compression with just one missing byte into output buffer => must fail
             FUZ_DISPLAYTEST;
