@@ -190,6 +190,7 @@ struct Option {
 		, silence(false)
 		, benchmark()
 		, forceCompress(false)
+		, forceStdout(false)
 		, compressionLevel(0)
 		, displayLevel(DisplayLevel::DEFAULT)
 		, errorString()
@@ -397,6 +398,11 @@ struct Option {
 //						legacyFormat = true;
 					} else if(getif('d')) {					// -d
 						compMode = CompMode::DECOMPRESS;
+					} else if(getif('c')) {					// -c
+						// TODO : Implement
+						forceStdout = true;
+						outFilename = stdoutFilename;
+						displayLevel = DisplayLevel::ERRORS;
 					} else if(getif('t')) {					// -t
 						compMode = CompMode::DECOMPRESS;
 						outFilename = nullFilename;
@@ -604,6 +610,7 @@ struct Option {
 	bool silence;
 	Lz4Mt::Benchmark benchmark;
 	bool forceCompress;
+	bool forceStdout;
 	int compressionLevel;
 	DisplayLevel displayLevel;
 	std::string errorString;
