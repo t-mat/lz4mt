@@ -42,6 +42,7 @@ typedef int (*Lz4MtCompress)(
 	, char* dst
 	, int isize
 	, int maxOutputSize
+	, int compressionLevel
 );
 
 typedef int (*Lz4MtCompressBound)(
@@ -132,6 +133,7 @@ struct Lz4MtContext {
 	Lz4MtCompressBound	compressBound;
 	Lz4MtDecompress		decompress;
 	Lz4MtMode			mode;
+	int					compressionLevel;
 };
 typedef struct Lz4MtContext Lz4MtContext;
 

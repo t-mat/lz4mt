@@ -80,6 +80,7 @@ struct Option {
 		, overwrite(false)
 		, silence(false)
 		, benchmark()
+		, compressionLevel(0)
 		, errorString()
 	{
 		if(strstr(argv[0], LZ4MT_UNLZ4)) {
@@ -215,12 +216,15 @@ struct Option {
 						exitFlag = true;
 					} else if(getif2('c', '0')) {			// -c0
 						compMode = CompMode::COMPRESS_C0;
+						compressionLevel = 1;
 					} else if(getif2('c', '1')) {			// -c1
 						compMode = CompMode::COMPRESS_C1;
+						compressionLevel = 9;
 					} else if(getif('c')) {					// -c?
 						// NOTE: no bad usage
 					} else if(getif2('h', 'c')) {			// -hc
 						compMode = CompMode::COMPRESS_C1;
+						compressionLevel = 9;
 					} else if(getif('h')) {					// -h?
 						showUsage(true);
 						exitFlag = true;
@@ -255,9 +259,11 @@ struct Option {
 						error = true;
 					} else if(getif2('b', '0')) {			// -b0
 						compMode = CompMode::COMPRESS_C0;
+						compressionLevel = 1;
 						benchmark.enable = true;
 					} else if(getif2('b', '1')) {			// -b1
 						compMode = CompMode::COMPRESS_C1;
+						compressionLevel = 9;
 						benchmark.enable = true;
 					} else if(getif('b')) {					// -b?
 						// NOTE: no bad usage
@@ -396,6 +402,7 @@ struct Option {
 	bool overwrite;
 	bool silence;
 	Lz4Mt::Benchmark benchmark;
+	int compressionLevel;
 	std::string errorString;
 };
 
@@ -420,17 +427,23 @@ int lz4mtCommandLine(int argc, char* argv[]) {
 	}
 
 	Lz4MtContext ctx = lz4mtInitContext();
-	ctx.mode			= static_cast<Lz4MtMode>(opt.mode);
-	ctx.read			= read;
-	ctx.readSeek		= readSeek;
-	ctx.readEof			= readEof;
-	ctx.write			= write;
-	ctx.compress		= LZ4_compress_limitedOutput;
-	ctx.compressBound	= LZ4_compressBound;
-	ctx.decompress		= LZ4_decompress_safe;
-	if(Option::CompMode::COMPRESS_C1 == opt.compMode) {
-		ctx.compress = LZ4_compressHC_limitedOutput;
-	}
+	ctx.mode				= static_cast<Lz4MtMode>(opt.mode);
+	ctx.read				= read;
+	ctx.readSeek			= readSeek;
+	ctx.readEof				= readEof;
+	ctx.write				= write;
+	ctx.compress			= [&opt]() {
+		if(opt.compressionLevel >= 3) {
+			return LZ4_compressHC2_limitedOutput;
+		} else {
+			return [](const char* src, char* dst, int size, int maxOut, int) {
+				return LZ4_compress_limitedOutput(src, dst, size, maxOut);
+			};
+		}
+	}();
+	ctx.compressBound		= LZ4_compressBound;
+	ctx.decompress			= LZ4_decompress_safe;
+	ctx.compressionLevel	= opt.compressionLevel;
 
 	if(opt.benchmark.enable) {
 		opt.benchmark.openIstream	= openIstream;

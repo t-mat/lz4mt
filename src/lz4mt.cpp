@@ -223,7 +223,7 @@ public:
 	}
 
 	int compress(const char* src, char* dst, int isize, int maxOutputSize) {
-		return ctx->compress(src, dst, isize, maxOutputSize);
+		return ctx->compress(src, dst, isize, maxOutputSize, ctx->compressionLevel);
 	}
 
 	int decompress(const char* src, char* dst, int isize, int maxOutputSize) {
@@ -245,18 +245,19 @@ lz4mtInitContext()
 {
 	Lz4MtContext e = { LZ4MT_RESULT_OK, 0 };
 
-	e.result		= LZ4MT_RESULT_OK;
-	e.readCtx		= nullptr;
-	e.read			= nullptr;
-	e.readEof		= nullptr;
-	e.readSkippable	= nullptr;
-	e.readSeek		= nullptr;
-	e.writeCtx		= nullptr;
-	e.write			= nullptr;
-	e.compress		= nullptr;
-	e.compressBound	= nullptr;
-	e.decompress	= nullptr;
-	e.mode			= LZ4MT_MODE_PARALLEL;
+	e.result			= LZ4MT_RESULT_OK;
+	e.readCtx			= nullptr;
+	e.read				= nullptr;
+	e.readEof			= nullptr;
+	e.readSkippable		= nullptr;
+	e.readSeek			= nullptr;
+	e.writeCtx			= nullptr;
+	e.write				= nullptr;
+	e.compress			= nullptr;
+	e.compressBound		= nullptr;
+	e.decompress		= nullptr;
+	e.mode				= LZ4MT_MODE_PARALLEL;
+	e.compressionLevel	= 0;
 
 	return e;
 }

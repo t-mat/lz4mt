@@ -51,7 +51,7 @@ FILE* getStdout() {
 #endif
 	return stdout;
 }
-}
+} // anonymous namespace
 
 namespace Lz4Mt { namespace Cstdio {
 bool fileExist(const std::string& filename) {

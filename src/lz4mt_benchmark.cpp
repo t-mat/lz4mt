@@ -243,6 +243,7 @@ int Benchmark::measure(
 						, cp->outPtr
 						, static_cast<int>(cp->inpSize)
 						, static_cast<int>(cp->outSize)
+						, ctx->compressionLevel
 					);
 				}
 			);
