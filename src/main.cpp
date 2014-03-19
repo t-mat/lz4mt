@@ -414,8 +414,6 @@ struct Option {
 							}
 						}
 						// NOTE: no bad usage
-					} else if(getif('y')) {					// -y
-						overwrite = true;
 //					} else if(getif('p')) {					// -p
 //						// Pause at the end (benchmark only)
 //						// (hidden option)
