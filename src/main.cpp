@@ -359,6 +359,37 @@ struct Option {
 					} else if(getif('H')) {					// -H
 						showUsage(true, true);
 						exitFlag = true;
+					} else if(getif('1')) {					// -1
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 1;
+					} else if(getif('2')) {					// -2
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 2;
+					} else if(getif('3')) {					// -3
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 3;
+					} else if(getif('4')) {					// -4
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 4;
+					} else if(getif('5')) {					// -5
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 5;
+					} else if(getif('6')) {					// -6
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 6;
+					} else if(getif('7')) {					// -7
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 7;
+					} else if(getif('8')) {					// -8
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 8;
+					} else if(getif('9')) {					// -9
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 9;
+					} else if(getif('A')) {					// -A
+						// non documented (hidden)
+						compMode = CompMode::COMPRESS;
+						compressionLevel = 'A' - '0';
 //					} else if(getif('l')) {					// -l
 //						legacyFormat = true;
 					} else if(getif('d')) {					// -d
