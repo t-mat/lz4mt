@@ -28,6 +28,9 @@
 // DISABLE_LZ4MT_EXCLUSIVE_OPTIONS :
 // #define DISABLE_LZ4MT_EXCLUSIVE_OPTIONS
 
+// DISABLE_LZ4MT_EXCLUSIVE_ERROR :
+#define DISABLE_LZ4MT_EXCLUSIVE_ERROR
+
 
 namespace {
 
@@ -210,11 +213,6 @@ struct Option {
 			args.push_back(argv[iarg]);
 		}
 
-		auto isDigits = [](const std::string& s) {
-			return std::all_of(std::begin(s), std::end(s)
-							   , static_cast<int(*)(int)>(std::isdigit));
-		};
-
 		replaceMap = [&]() {
 			return std::map<std::string, std::string> {
 				  { "${lz4mt}"		, argv[0] }
@@ -223,6 +221,12 @@ struct Option {
 				, { "${stdout}"		, stdoutFilename }
 				, { "${null}"		, nullFilename }
 			};
+		};
+
+#if !defined(DISABLE_LZ4MT_EXCLUSIVE_OPTIONS)
+		auto isDigits = [](const std::string& s) {
+			return std::all_of(std::begin(s), std::end(s)
+							   , static_cast<int(*)(int)>(std::isdigit));
 		};
 
 		std::map<std::string, std::function<bool (const std::string&)>> opts;
@@ -251,7 +255,6 @@ struct Option {
 			return opts.find(getOptionName(s));
 		};
 
-#if !defined(DISABLE_LZ4MT_EXCLUSIVE_OPTIONS)
 		opts["--lz4mt-thread"] = [&](const std::string& arg) -> bool {
 			auto a = getOptionArg(arg);
 			if(isDigits(a)) {
@@ -286,13 +289,17 @@ struct Option {
 				if(benchmark.enable) {
 					benchmark.files.push_back(a);
 				} else if(inpFilename.empty()) {
+					// first provided filename is input
 					inpFilename = a;
 				} else if(outFilename.empty()) {
+					// second provided filename is output
 					outFilename = a;
 				} else {
+#if !defined(DISABLE_LZ4MT_EXCLUSIVE_ERROR)
 					errorString += "lz4mt: Bad argument ["
 								   + std::string(a) + "]\n";
 					error = true;
+#endif
 				}
 			} else if('-' == a0 && 0 == a1) {
 				if(inpFilename.empty()) {
@@ -300,7 +307,9 @@ struct Option {
 				} else {
 					outFilename = stdoutFilename;
 				}
-			} else if('-' == a0 && '-' == a1) {
+			}
+#if !defined(DISABLE_LZ4MT_EXCLUSIVE_OPTIONS)
+			else if('-' == a0 && '-' == a1) {
 				//	long option
 				const auto it = findOption(a);
 				if(opts.end() == it) {
@@ -313,6 +322,7 @@ struct Option {
 						error = true;
 					}
 				}
+#endif
 			} else {
 				for(int i = 1; 0 != a[i] && !error && !exitFlag;) {
 					const auto getif = [&] (char c0) -> bool {
