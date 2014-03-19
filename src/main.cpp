@@ -131,7 +131,7 @@ struct Option {
 		opts["--lz4mt-thread"] = [&](const std::string& arg) -> bool {
 			auto a = getOptionArg(arg);
 			if(isDigits(a)) {
-				const auto v = atoi(a.c_str());
+				const auto v = std::stoi(a);
 				switch(v) {
 				default:
 				case 0:
