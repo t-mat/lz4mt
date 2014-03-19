@@ -180,6 +180,7 @@ struct Option {
 	)
 		: error(false)
 		, exitFlag(false)
+		, pause(false)
 		, compMode(CompMode::COMPRESS)
 		, sd(lz4mtInitStreamDescriptor())
 		, mode(LZ4MT_MODE_DEFAULT)
@@ -454,13 +455,11 @@ struct Option {
 							}
 						}
 						// NOTE: no bad usage
-//					} else if(getif('p')) {					// -p
-//						// Pause at the end (benchmark only)
-//						// (hidden option)
-//					} else if(getif('v')) {					// -v
-//						// Verbose mode
-//					} else if(getif('l')) {					// -l
-//						// Use Legacy format (hidden option)
+					} else if(getif('p')) {					// -p
+						// Pause at the end (hidden option)
+						// TODO : Implement
+						benchmark.pause = true;
+						pause = true;
 					} else {
 						// Unrecognised command
 						showBadUsage(a[i]);
@@ -600,6 +599,7 @@ struct Option {
 
 	bool error;
 	bool exitFlag;
+	bool pause;
 	CompMode compMode;
 	Lz4MtStreamDescriptor sd;
 	int mode;
