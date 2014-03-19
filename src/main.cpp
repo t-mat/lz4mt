@@ -385,8 +385,9 @@ struct Option {
 								sd.bd.blockMaximumSize = 6;
 							} else if(getif('7')) {			// -B7
 								sd.bd.blockMaximumSize = 7;
-//							} else if(getif('D')) {			// -BD
-//								// TODO : Implement
+							} else if(getif('D')) {			// -BD
+								// TODO : Implement
+								sd.flg.blockIndependence = 0;
 							} else if(getif('X')) {			// -BX
 								sd.flg.blockChecksum = 1;
 							} else {						// -B?
