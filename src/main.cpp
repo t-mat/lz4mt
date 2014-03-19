@@ -139,6 +139,25 @@ typedef std::function<bool(void)> AttyFunc;
 typedef std::function<bool(const std::string&, const std::string&)> CmpFunc;
 
 
+enum class DisplayLevel {
+	  NO_DISPLAY
+	, ERRORS
+	, RESULTS
+	, PROGRESSION
+	, INFORMATION
+	, MIN = NO_DISPLAY
+	, MAX = INFORMATION
+	, DEFAULT = RESULTS
+};
+
+DisplayLevel& operator--(DisplayLevel& x) {
+	if(DisplayLevel::NO_DISPLAY != x) {
+		x = static_cast<DisplayLevel>(static_cast<int>(x) - 1);
+	}
+	return x;
+}
+
+
 bool hasExtension(const std::string& str, const std::string& ext) {
 	const auto pos = str.find_last_of('.');
 	if(std::string::npos == pos) {
@@ -171,6 +190,7 @@ struct Option {
 		, silence(false)
 		, benchmark()
 		, compressionLevel(0)
+		, displayLevel(DisplayLevel::DEFAULT)
 		, errorString()
 	{
 		if(strstr(argv[0], LZ4MT_UNLZ4)) {
@@ -325,6 +345,8 @@ struct Option {
 						compressionLevel = 9;
 					} else if(getif('y')) {					// -y
 						overwrite = true;
+					} else if(getif('s')) {					// -s
+						displayLevel = DisplayLevel::ERRORS;
 					} else
 #endif // DISABLE_LZ4C_LEGACY_OPTIONS
 
@@ -346,6 +368,10 @@ struct Option {
 						outFilename = nullFilename;
 					} else if(getif('f')) {					// -f
 						overwrite = true;
+					} else if(getif('v')) {					// -v
+						displayLevel = DisplayLevel::MAX;
+					} else if(getif('q')) {					// -q
+						--displayLevel;
 					} else if(getif('k')) {					// -k
 						// keep source file (default anyway, so useless)
 						// (for xz/lzma compatibility)
@@ -499,6 +525,12 @@ struct Option {
 		}
 	}
 
+	void display(DisplayLevel displayLevel, const std::string& message) {
+		if(this->displayLevel >= displayLevel) {
+			display(message);
+		}
+	}
+
 	std::string replace(const std::string& s0) {
 		auto s = s0;
 		const std::map<std::string, std::string> rm = replaceMap();
@@ -533,6 +565,7 @@ struct Option {
 	bool silence;
 	Lz4Mt::Benchmark benchmark;
 	int compressionLevel;
+	DisplayLevel displayLevel;
 	std::string errorString;
 	std::function<std::map<std::string, std::string> ()> replaceMap;
 };
