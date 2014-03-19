@@ -189,6 +189,7 @@ struct Option {
 		, overwrite(false)
 		, silence(false)
 		, benchmark()
+		, forceCompress(false)
 		, compressionLevel(0)
 		, displayLevel(DisplayLevel::DEFAULT)
 		, errorString()
@@ -359,6 +360,8 @@ struct Option {
 					} else if(getif('H')) {					// -H
 						showUsage(true, true);
 						exitFlag = true;
+					} else if(getif('z')) {					// -z
+						forceCompress = true;
 					} else if(getif('1')) {					// -1
 						compMode = CompMode::COMPRESS;
 						compressionLevel = 1;
@@ -464,6 +467,12 @@ struct Option {
 		if(!error && !exitFlag) {
 			if(inpFilename.empty()) {
 				inpFilename = stdinFilename;
+			}
+
+			if(isCompress() && !forceCompress) {
+				if(hasExtension(inpFilename, LZ4MT_EXTENSION)) {
+					compMode = CompMode::DECOMPRESS;
+				}
 			}
 
 			if(outFilename.empty()) {
@@ -594,6 +603,7 @@ struct Option {
 	bool overwrite;
 	bool silence;
 	Lz4Mt::Benchmark benchmark;
+	bool forceCompress;
 	int compressionLevel;
 	DisplayLevel displayLevel;
 	std::string errorString;
