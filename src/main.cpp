@@ -400,7 +400,6 @@ struct Option {
 					} else if(getif('d')) {					// -d
 						compMode = CompMode::DECOMPRESS;
 					} else if(getif('c')) {					// -c
-						// TODO : Implement
 						forceStdout = true;
 						outFilename = stdoutFilename;
 						displayLevel = DisplayLevel::ERRORS;
@@ -502,6 +501,7 @@ struct Option {
 			}
 		}
 
+		// No warning message in pure pipe mode (stdin + stdout)
 		if(!error && !exitFlag) {
 			if(   cmpFilename(stdinFilename, inpFilename)
 			   && cmpFilename(stdoutFilename, outFilename)
@@ -510,10 +510,13 @@ struct Option {
 			}
 		}
 
+		// Check if input or output are defined as console;
+		// trigger an error in this case
 		if(!error && !exitFlag) {
 			if(   (   isCompress()
 				   && cmpFilename(stdoutFilename, outFilename)
 				   && isAttyStdout()
+				   && !forceStdout
 				  )
 			   || (   !isCompress()
 				   && cmpFilename(stdinFilename, inpFilename)
