@@ -20,6 +20,14 @@
 #include "lz4mt_benchmark.h"
 #include "lz4mt_io_cstdio.h"
 
+// DISABLE_LZ4C_LEGACY_OPTIONS :
+// Control the availability of -c0, -c1 and -hc legacy arguments
+// Default : Legacy options are enabled
+// #define DISABLE_LZ4C_LEGACY_OPTIONS
+
+// DISABLE_LZ4MT_EXCLUSIVE_OPTIONS :
+// #define DISABLE_LZ4MT_EXCLUSIVE_OPTIONS
+
 
 namespace {
 
@@ -27,36 +35,118 @@ const char LZ4MT_EXTENSION[] = ".lz4";
 const char LZ4MT_UNLZ4[] = "unlz4";
 const char LZ4MT_LZ4CAT[] = "lz4cat";
 
+const char welcomeMessage[] = 
+	"*** lz4mt ***\n"
+;
+
 const char usage[] = 
 	"usage :\n"
-	"  lz4mt [switch...] [input] [output]\n"
-	"switch :\n"
-	"  -c0/-c  : Compress (lz4) (default)\n"
-	"  -c1/-hc : Compress (lz4hc)\n"
-	"  -d      : Decompress\n"
-	"  -y      : Overwrite without prompting\n"
-	"  -H      : Help (this text + advanced options)\n"
+	"  ${lz4mt} [arg] [input] [output]\n"
+	"\n"
+	"input   : a filename\n"
+	"          with no FILE, or when FILE is - or ${stdinmark}, read standard input\n"
+	"Arguments :\n"
+	" -1     : Fast compression (default)\n"
+	" -9     : High compression\n"
+	" -d     : decompression (default for ${.lz4} extension)\n"
+	" -z     : force compression\n"
+	" -f     : overwrite output without prompting\n"
+	" -h/-H  : display help/long help and exit\n"
 ;
 
 const char usage_advanced[] =
-	"\nAdvanced options :\n"
-	" -t       : decode test mode (do not output anything)\n"
-	" -B#      : Block size [4-7](default : 7)\n"
-	" -BX      : enable block checksum (default:disabled)\n"
-	" -Sx      : disable stream checksum (default:enabled)\n"
-	" -b#      : benchmark files, using # [0-1] compression level\n"
-	" -i#      : iteration loops [1-9](default : 3), benchmark mode"
-	             " only\n"
-	"  input   : can be 'stdin' (pipe) or a filename\n"
-	"  output  : can be 'stdout'(pipe) or a filename or 'null'\n"
+	"\n"
+	"Advanced arguments :\n"
+	" -V     : display Version number and exit\n"
+	" -v     : verbose mode\n"
+	" -q     : suppress warnings; specify twice to suppress errors too\n"
+	" -c     : force write to standard output, even if it is the console\n"
+	" -t     : test compressed file integrity\n"
+	" -l     : compress using Legacy format (Linux kernel compression)\n"
+	" -B#    : Block size [4-7](default : 7)\n"
+	" -BD    : Block dependency (improve compression ratio)\n"
+	" -BX    : enable block checksum (default:disabled)\n"
+	" -Sx    : disable stream checksum (default:enabled)\n"
+	"Benchmark arguments :\n"
+	" -b     : benchmark file(s)\n"
+	" -i#    : iteration loops [1-9](default : 3), benchmark mode only\n"
+#if !defined(DISABLE_LZ4C_LEGACY_OPTIONS)
+	"Legacy arguments :\n"
+	" -c0    : fast compression\n"
+	" -c1    : high compression\n"
+	" -hc    : high compression\n"
+	" -y     : overwrite output without prompting\n"
+	" -s     : suppress warnings\n"
+#endif // DISABLE_LZ4C_LEGACY_OPTIONS
 
-	"\nlz4mt exclusive options :\n"
+#if !defined(DISABLE_LZ4MT_EXCLUSIVE_OPTIONS)
+	"\n"
+	"lz4mt exclusive arguments :\n"
 	" --lz4mt-thread=0 : Multi thread mode (default)\n"
 	" --lz4mt-thread=1 : Single thread mode\n"
+#endif // DISABLE_LZ4MT_EXCLUSIVE_OPTIONS
+;
+
+const char usage_longHelp[] =
+	"\n"
+	"Which values can get [output] ?\n"
+	"[output] : a filename\n"
+	"          '${stdout}', or '-' for standard output (pipe mode)\n"
+	"          '${null}' to discard output (test mode)\n"
+	"[output] can be left empty. In this case, it receives the following value :\n"
+	"          - if stdout is not the console, then [output] = stdout\n"
+	"          - if stdout is console :\n"
+	"               + if compression selected, output to filename${.lz4}\n"
+	"               + if decompression selected, output to filename without '${.lz4}'\n"
+	"                    > if input filename has no '${.lz4}' extension : error\n"
+	"\n"
+	"Compression levels :\n"
+	"There are technically 2 accessible compression levels.\n"
+	"-0 ... -2 => Fast compression\n"
+	"-3 ... -9 => High compression\n"
+	"\n"
+	"stdin, stdout and the console :\n"
+	"To protect the console from binary flooding (bad argument mistake)\n"
+	"${lz4mt} will refuse to read from console, or write to console\n"
+	"except if '-c' command is specified, to force output to console\n"
+	"\n"
+	"Simple example :\n"
+	"1 : compress 'filename' fast, using default output name 'filename.lz4'\n"
+	"          ${lz4mt} filename\n"
+	"\n"
+	"Arguments can be appended together, or provided independently. For example :\n"
+	"2 : compress 'filename' in high compression mode, overwrite output if exists\n"
+	"          ${lz4mt} -f9 filename\n"
+	"    is equivalent to :\n"
+	"          ${lz4mt} -f -9 filename\n"
+	"\n"
+	"${lz4mt} can be used in 'pure pipe mode', for example :\n"
+	"3 : compress data stream from 'generator', send result to 'consumer'\n"
+	"          generator | ${lz4mt} | consumer\n"
+#if !defined(DISABLE_LZ4C_LEGACY_OPTIONS)
+	"\n"
+	"Warning :\n"
+	"Legacy arguments take precedence. Therefore :\n"
+	"          ${lz4mt} -hc filename\n"
+	"means 'compress filename in high compression mode'\n"
+	"It is not equivalent to :\n"
+	"          ${lz4mt} -h -c filename\n"
+	"which would display help text and exit\n"
+#endif // DISABLE_LZ4C_LEGACY_OPTIONS
 ;
 
 typedef std::function<bool(void)> AttyFunc;
 typedef std::function<bool(const std::string&, const std::string&)> CmpFunc;
+
+
+bool hasExtension(const std::string& str, const std::string& ext) {
+	const auto pos = str.find_last_of('.');
+	if(std::string::npos == pos) {
+		return false;
+	}
+	return 0 == str.compare(pos, ext.length(), ext);
+}
+
 
 struct Option {
 	Option(
@@ -71,7 +161,7 @@ struct Option {
 	)
 		: error(false)
 		, exitFlag(false)
-		, compMode(CompMode::COMPRESS_C0)
+		, compMode(CompMode::COMPRESS)
 		, sd(lz4mtInitStreamDescriptor())
 		, mode(LZ4MT_MODE_DEFAULT)
 		, inpFilename()
@@ -102,6 +192,16 @@ struct Option {
 							   , static_cast<int(*)(int)>(std::isdigit));
 		};
 
+		replaceMap = [&]() {
+			return std::map<std::string, std::string> {
+				  { "${lz4mt}"		, argv[0] }
+				, { "${.lz4}"		, LZ4MT_EXTENSION }
+				, { "${stdinmark}"	, stdinFilename }
+				, { "${stdout}"		, stdoutFilename }
+				, { "${null}"		, nullFilename }
+			};
+		};
+
 		std::map<std::string, std::function<bool (const std::string&)>> opts;
 
 		const char optdelim = '=';
@@ -128,6 +228,7 @@ struct Option {
 			return opts.find(getOptionName(s));
 		};
 
+#if !defined(DISABLE_LZ4MT_EXCLUSIVE_OPTIONS)
 		opts["--lz4mt-thread"] = [&](const std::string& arg) -> bool {
 			auto a = getOptionArg(arg);
 			if(isDigits(a)) {
@@ -148,6 +249,7 @@ struct Option {
 				return false;
 			}
 		};
+#endif // DISABLE_LZ4MT_EXCLUSIVE_OPTIONS
 
 		while(!args.empty() && !error && !exitFlag) {
 			const auto a = args.front();
@@ -200,6 +302,7 @@ struct Option {
 						}
 					};
 
+#if !defined(DISABLE_LZ4C_LEGACY_OPTIONS)
 					const auto getif2 = [&] (char c0, char c1) -> bool {
 						const auto x0 = a[i];
 						const auto x1 = x0 ? a[i+1] : x0;
@@ -211,29 +314,42 @@ struct Option {
 						}
 					};
 
-					if(getif('H')) {						// -H
-						showUsage(true);
-						exitFlag = true;
-					} else if(getif2('c', '0')) {			// -c0
-						compMode = CompMode::COMPRESS_C0;
+					if(getif2('c', '0')) {					// -c0
+						compMode = CompMode::COMPRESS;
 						compressionLevel = 1;
 					} else if(getif2('c', '1')) {			// -c1
-						compMode = CompMode::COMPRESS_C1;
+						compMode = CompMode::COMPRESS;
 						compressionLevel = 9;
-					} else if(getif('c')) {					// -c?
-						// NOTE: no bad usage
 					} else if(getif2('h', 'c')) {			// -hc
-						compMode = CompMode::COMPRESS_C1;
+						compMode = CompMode::COMPRESS;
 						compressionLevel = 9;
-					} else if(getif('h')) {					// -h?
+					} else if(getif('y')) {					// -y
+						overwrite = true;
+					} else
+#endif // DISABLE_LZ4C_LEGACY_OPTIONS
+
+					if(getif('V')) {						// -V
+						showWelcomeMessage();
+						exitFlag = true;
+					} else if(getif('h')) {					// -h
 						showUsage(true);
 						exitFlag = true;
+					} else if(getif('H')) {					// -H
+						showUsage(true, true);
+						exitFlag = true;
+//					} else if(getif('l')) {					// -l
+//						legacyFormat = true;
 					} else if(getif('d')) {					// -d
 						compMode = CompMode::DECOMPRESS;
 					} else if(getif('t')) {					// -t
 						compMode = CompMode::DECOMPRESS;
 						outFilename = nullFilename;
-					} else if(getif('B')) {
+					} else if(getif('f')) {					// -f
+						overwrite = true;
+					} else if(getif('k')) {					// -k
+						// keep source file (default anyway, so useless)
+						// (for xz/lzma compatibility)
+					} else if(getif('B')) {					// -B?
 						for(;;) {
 							if(getif('4')) {				// -B4
 								sd.bd.blockMaximumSize = 4;
@@ -252,21 +368,16 @@ struct Option {
 								break;
 							}
 						}
-					} else if(getif2('S', 'x')) {			// -Sx
-						sd.flg.streamChecksum = 0;
 					} else if(getif('S')) {					// -S?
-						showBadUsage(a[i], a[i+1]);
-						error = true;
-					} else if(getif2('b', '0')) {			// -b0
-						compMode = CompMode::COMPRESS_C0;
-						compressionLevel = 1;
+						if(getif('x')) {					// -Sx
+							sd.flg.streamChecksum = 0;
+						} else {
+							showBadUsage(a[i], a[i+1]);
+							error = true;
+						}
+					} else if(getif('b')) {					// -b
+						compMode = CompMode::COMPRESS;
 						benchmark.enable = true;
-					} else if(getif2('b', '1')) {			// -b1
-						compMode = CompMode::COMPRESS_C1;
-						compressionLevel = 9;
-						benchmark.enable = true;
-					} else if(getif('b')) {					// -b?
-						// NOTE: no bad usage
 					} else if(getif('i')) {
 						for(char x = '1'; x <= '9'; ++x) {	// -i[1-9]
 							if(getif(x)) {
@@ -306,11 +417,8 @@ struct Option {
 				} else if(isCompress()) {
 					outFilename = inpFilename + LZ4MT_EXTENSION;
 				} else {
-					const auto o = inpFilename.find_last_of('.');
-					if(   std::string::npos != o
-					   && 0 == inpFilename.compare(
-						   o, strlen(LZ4MT_EXTENSION), LZ4MT_EXTENSION)
-					) {
+					if(hasExtension(inpFilename, LZ4MT_EXTENSION)) {
+						const auto o = inpFilename.find_last_of('.');
 						outFilename = inpFilename.substr(0, o);
 					} else {
 						errorString += "lz4mt: Cannot automatically decide an output filename\n";
@@ -350,18 +458,24 @@ struct Option {
 	}
 
 	bool isCompress() const {
-		return CompMode::COMPRESS_C0 == compMode
-		    || CompMode::COMPRESS_C1 == compMode;
+		return CompMode::COMPRESS == compMode;
 	}
 
 	bool isDecompress() const {
 		return CompMode::DECOMPRESS == compMode;
 	}
 
-	void showUsage(bool advanced = false) {
-		errorString += usage;
+	void showWelcomeMessage() {
+		errorString += replace(welcomeMessage);
+	}
+
+	void showUsage(bool advanced = false, bool longHelp = false) {
+		errorString += replace(usage);
 		if(advanced) {
-			errorString += usage_advanced;
+			errorString += replace(usage_advanced);
+		}
+		if(longHelp) {
+			errorString += replace(usage_longHelp);
 		}
 	}
 
@@ -385,10 +499,26 @@ struct Option {
 		}
 	}
 
+	std::string replace(const std::string& s0) {
+		auto s = s0;
+		const std::map<std::string, std::string> rm = replaceMap();
+		for(const auto& r : rm) {
+			const auto& from = r.first;
+			const auto& to = r.second;
+			for(;;) {
+				const auto pos = s.find(from);
+				if(std::string::npos == pos) {
+					break;
+				}
+				s.replace(pos, from.length(), to);
+			}
+		}
+		return s;
+	}
+
 	enum class CompMode {
 		  DECOMPRESS
-		, COMPRESS_C0
-		, COMPRESS_C1
+		, COMPRESS
 	};
 
 	bool error;
@@ -404,6 +534,7 @@ struct Option {
 	Lz4Mt::Benchmark benchmark;
 	int compressionLevel;
 	std::string errorString;
+	std::function<std::map<std::string, std::string> ()> replaceMap;
 };
 
 
