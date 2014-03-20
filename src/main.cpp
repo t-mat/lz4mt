@@ -140,6 +140,7 @@ const char usage_longHelp[] =
 
 typedef std::function<bool(void)> AttyFunc;
 typedef std::function<bool(const std::string&, const std::string&)> CmpFunc;
+typedef std::map<std::string, std::string> ReplaceMap;
 
 
 enum class DisplayLevel {
@@ -198,6 +199,7 @@ struct Option {
 		, compressionLevel(0)
 		, displayLevel(DisplayLevel::DEFAULT)
 		, errorString()
+		, replaceMap()
 	{
 		if(strstr(argv[0], LZ4MT_UNLZ4)) {
 			silence = true;
@@ -213,14 +215,17 @@ struct Option {
 			args.push_back(argv[iarg]);
 		}
 
-		replaceMap = [&]() {
-			return std::map<std::string, std::string> {
-				  { "${lz4mt}"		, argv[0] }
-				, { "${.lz4}"		, LZ4MT_EXTENSION }
-				, { "${stdinmark}"	, stdinFilename }
-				, { "${stdout}"		, stdoutFilename }
-				, { "${null}"		, nullFilename }
-			};
+		replaceMap = [&]() -> ReplaceMap {
+			// NOTE for "-> ReplaceMap" :
+			//		It's a workaround for g++-4.6's strange warning.
+
+			ReplaceMap rm;
+			rm["${lz4mt}"]		= argv[0];
+			rm["${.lz4}"]		= LZ4MT_EXTENSION;
+			rm["${stdinmark}"]	= stdinFilename;
+			rm["${stdout}"]		= stdoutFilename;
+			rm["${null}"]		= nullFilename;
+			return rm;
 		};
 
 #if !defined(DISABLE_LZ4MT_EXCLUSIVE_OPTIONS)
@@ -627,8 +632,16 @@ struct Option {
 	int compressionLevel;
 	DisplayLevel displayLevel;
 	std::string errorString;
-	std::function<std::map<std::string, std::string> ()> replaceMap;
+	std::function<ReplaceMap()> replaceMap;
 };
+
+
+typedef int (*CompressionFunc)
+	(const char* src, char* dst, int size, int maxOut, int maxOutputSize);
+
+int bridge_LZ4_compress_limitedOutput(const char* src, char* dst, int size, int maxOut, int) {
+	return LZ4_compress_limitedOutput(src, dst, size, maxOut);
+}
 
 
 int lz4mtCommandLine(int argc, char* argv[]) {
@@ -656,13 +669,14 @@ int lz4mtCommandLine(int argc, char* argv[]) {
 	ctx.readSeek			= readSeek;
 	ctx.readEof				= readEof;
 	ctx.write				= write;
-	ctx.compress			= [&opt]() {
+	ctx.compress			= [&opt]() -> CompressionFunc {
+		// NOTE for "-> CompressionFunc" :
+		//		It's a workaround for g++-4.6's strange warning.
+
 		if(opt.compressionLevel >= 3) {
 			return LZ4_compressHC2_limitedOutput;
 		} else {
-			return [](const char* src, char* dst, int size, int maxOut, int) {
-				return LZ4_compress_limitedOutput(src, dst, size, maxOut);
-			};
+			return bridge_LZ4_compress_limitedOutput;
 		}
 	}();
 	ctx.compressBound		= LZ4_compressBound;

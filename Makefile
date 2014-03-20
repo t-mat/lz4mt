@@ -26,7 +26,7 @@ endif
 SRCS		= $(wildcard $(SRCDIR)/*.cpp)
 OBJS		= $(addprefix $(OBJDIR)/,$(notdir $(SRCS:.cpp=.o)))
 
-LZ4_SRCS	= lz4/lz4.c lz4/lz4hc.c lz4/xxhash.c
+LZ4_SRCS	= lz4/lz4.c lz4/lz4hc.c lz4/programs/xxhash.c
 LZ4_OBJS	= $(addprefix obj/,$(notdir $(LZ4_SRCS:.c=.o)))
 
 ENWIK		= enwik8
@@ -55,6 +55,9 @@ obj/%.o: src/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 obj/%.o: lz4/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+obj/%.o: lz4/programs/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 setup:
