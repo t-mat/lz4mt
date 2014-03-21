@@ -6,3 +6,6 @@ x64/
 *.sdf
 *.suo
 *.user
+
+obj/
+lz4mt
