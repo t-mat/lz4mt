@@ -35,8 +35,6 @@
 namespace {
 
 const char LZ4MT_EXTENSION[] = ".lz4";
-const char LZ4MT_UNLZ4[] = "unlz4";
-const char LZ4MT_LZ4CAT[] = "lz4cat";
 
 const char welcomeMessage[] = 
 	"*** lz4mt ***\n"
@@ -201,15 +199,6 @@ struct Option {
 		, errorString()
 		, replaceMap()
 	{
-		if(strstr(argv[0], LZ4MT_UNLZ4)) {
-			silence = true;
-			compMode = CompMode::DECOMPRESS;
-		} else if(strstr(argv[0], LZ4MT_LZ4CAT)) {
-			silence = true;
-			compMode = CompMode::DECOMPRESS;
-			outFilename = stdoutFilename;
-		}
-
 		std::deque<std::string> args;
 		for(int iarg = 1; iarg < argc; ++iarg) {
 			args.push_back(argv[iarg]);
