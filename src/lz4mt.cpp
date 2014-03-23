@@ -68,7 +68,7 @@ char bdToChar(const Lz4MtBd& bd) {
 	);
 }
 
-Lz4MtBd charToBc(char c) {
+Lz4MtBd charToBd(char c) {
 	Lz4MtBd bd = { 0 };
 	bd.reserved3		= (c >> 0) & 15;
 	bd.blockMaximumSize	= (c >> 4) &  7;
@@ -556,7 +556,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			break;
 		}
 		sd->flg = charToFlg(*p++);
-		sd->bd  = charToBc(*p++);
+		sd->bd  = charToBd(*p++);
 		const auto r = validateStreamDescriptor(sd);
 		if(LZ4MT_RESULT_OK != r) {
 			ctx->setResult(r);
