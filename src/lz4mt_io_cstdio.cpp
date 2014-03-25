@@ -155,17 +155,17 @@ int write(const Lz4MtContext* ctx, const void* source, int sourceSize) {
 	}
 }
 
-uint64_t getFilesize(const std::string& fileanme) {
+uint64_t getFilesize(const std::string& filename) {
 	int r = 0;
 #if defined(_MSC_VER)
 	struct _stat64 s = { 0 };
-	r = _stat64(fileanme.c_str(), &s);
+	r = _stat64(filename.c_str(), &s);
 	auto S_ISREG = [](decltype(s.st_mode) x) {
 		return (x & S_IFMT) == S_IFREG;
 	};
 #else
 	struct stat s;
-	r = stat(fileanme.c_str(), &s);
+	r = stat(filename.c_str(), &s);
 #endif
 	if(r || !S_ISREG(s.st_mode)) {
 		return 0;
