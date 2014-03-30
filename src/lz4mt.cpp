@@ -361,58 +361,9 @@ private:
 };
 
 
-} // anonymous namespace
-
-
-extern "C" Lz4MtContext
-lz4mtInitContext()
-{
-	Lz4MtContext e = { LZ4MT_RESULT_OK, 0 };
-
-	e.result			= LZ4MT_RESULT_OK;
-	e.readCtx			= nullptr;
-	e.read				= nullptr;
-	e.readEof			= nullptr;
-	e.readSkippable		= nullptr;
-	e.readSeek			= nullptr;
-	e.writeCtx			= nullptr;
-	e.write				= nullptr;
-	e.compress			= nullptr;
-	e.compressBound		= nullptr;
-	e.decompress		= nullptr;
-	e.mode				= LZ4MT_MODE_PARALLEL;
-	e.compressionLevel	= 0;
-
-	return e;
-}
-
-
-extern "C" Lz4MtStreamDescriptor
-lz4mtInitStreamDescriptor()
-{
-	Lz4MtStreamDescriptor e = { { 0 } };
-
-	e.flg.presetDictionary	= 0;
-	e.flg.streamChecksum	= 1;
-	e.flg.reserved1			= 0;
-	e.flg.streamSize		= 0;
-	e.flg.blockChecksum		= 0;
-	e.flg.blockIndependence	= 1;
-	e.flg.versionNumber		= 1;
-
-	e.bd.reserved3			= 0;
-	e.bd.blockMaximumSize	= LZ4S_BLOCKSIZEID_DEFAULT;
-	e.bd.reserved2			= 0;
-
-	e.streamSize			= 0;
-	e.dictId				= 0;
-
-	return e;
-}
-
-
 static Lz4MtResult
-lz4mtCompressMakeHeader(Context* ctx, const Lz4MtStreamDescriptor* sd) {
+makeHeader(Context* ctx, const Lz4MtStreamDescriptor* sd)
+{
 	char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
 	auto p = &d[0];
 
@@ -447,126 +398,14 @@ lz4mtCompressMakeHeader(Context* ctx, const Lz4MtStreamDescriptor* sd) {
 }
 
 
-static Lz4MtResult
-lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+Lz4MtResult
+compress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 {
-	assert(lz4MtContext);
-	assert(sd);
-
 	Params params(lz4MtContext, sd);
 	Context ctx_(lz4MtContext);
 	Context* ctx = &ctx_;
 
-	if(LZ4MT_RESULT_OK != lz4mtCompressMakeHeader(ctx, sd)) {
-		return ctx->result();
-	}
-
-	const auto inputBufferSize = [&]() -> size_t {
-		// NOTE for "-> size_t" :
-		//		It's a workaround for g++-4.6's strange warning.
-		const auto s = params.nBlockMaximumSize + 65536;
-		return std::max(s, static_cast<decltype(s)>(LZ4S_MIN_STREAM_BUFSIZE));
-	}();
-
-	const size_t nPool = 1;
-	Lz4Mt::MemPool srcBufferPool(inputBufferSize, nPool);
-	Lz4Mt::MemPool dstBufferPool(params.nBlockMaximumSize + LZ4S_CACHELINE, nPool);
-
-	const BufferPtr src(srcBufferPool.alloc());
-	const BufferPtr dst(dstBufferPool.alloc());
-
-	auto* const srcBuf = src->data();
-	auto* const srcEnd = srcBuf + src->size();
-	auto* const dstBuf = dst->data();
-
-	auto* in_start = srcBuf;
-
-	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
-
-	BlockDependentCompressor bdc(lz4MtContext->compressionLevel, srcBuf);
-
-	for(;;) {
-		if((in_start + params.nBlockMaximumSize) > srcEnd) {
-			in_start = bdc.translate();
-		}
-
-		const auto inSize = ctx->read(in_start, params.nBlockMaximumSize);
-		if(0 == inSize) {
-			break;
-		}
-
-		if(params.streamChecksum) {
-			xxhStream.update(in_start, inSize);
-		}
-
-		const auto outSize = bdc.compress(
-			  in_start
-			, dstBuf
-			, inSize
-			, inSize-1
-		);
-
-		struct WriteStat {
-			int bytes;
-			int header;
-			char* ptr;
-		};
-		const auto writeStat = [&]() -> WriteStat {
-			// NOTE for "-> WriteStat" :
-			//		It's a workaround for g++-4.6's strange warning.
-			WriteStat ws = { 0 };
-			if(outSize > 0) {
-				ws.bytes	= outSize;
-				ws.header	= outSize;
-				ws.ptr		= dstBuf;
-			} else {
-				ws.bytes	= inSize;
-				ws.header	= makeIncompless(inSize);
-				ws.ptr		= in_start;
-			}
-			return ws;
-		} ();
-
-		ctx->writeU32(writeStat.header);
-		ctx->writeBin(writeStat.ptr, writeStat.bytes);
-		if(params.blockCheckSumBytes) {
-			const auto xh = Lz4Mt::Xxh32(writeStat.ptr, writeStat.bytes, LZ4S_CHECKSUM_SEED).digest();
-			ctx->writeU32(xh);
-		}
-
-		in_start += inSize;
-	}
-
-	if(!ctx->writeU32(LZ4S_EOS)) {
-		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
-	}
-
-	if(params.streamChecksum) {
-		const auto digest = xxhStream.digest();
-		if(!ctx->writeU32(digest)) {
-			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
-		}
-	}
-
-	return LZ4MT_RESULT_OK;
-}
-
-
-extern "C" Lz4MtResult
-lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
-{
-	assert(lz4MtContext);
-	assert(sd);
-
-	if(0 == sd->flg.blockIndependence) {
-		return lz4mtCompressBlockDependency(lz4MtContext, sd);
-	}
-
-	Params params(lz4MtContext, sd);
-	Context ctx_(lz4MtContext);
-	Context* ctx = &ctx_;
-
-	if(LZ4MT_RESULT_OK != lz4mtCompressMakeHeader(ctx, sd)) {
+	if(LZ4MT_RESULT_OK != makeHeader(ctx, sd)) {
 		return ctx->result();
 	}
 
@@ -664,6 +503,175 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 	}
 
 	return LZ4MT_RESULT_OK;
+}
+
+
+Lz4MtResult
+compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+{
+	assert(lz4MtContext);
+	assert(sd);
+
+	Params params(lz4MtContext, sd);
+	Context ctx_(lz4MtContext);
+	Context* ctx = &ctx_;
+
+	if(LZ4MT_RESULT_OK != makeHeader(ctx, sd)) {
+		return ctx->result();
+	}
+
+	const auto inputBufferSize = [&]() -> size_t {
+		// NOTE for "-> size_t" :
+		//		It's a workaround for g++-4.6's strange warning.
+		const auto s = params.nBlockMaximumSize + 65536;
+		return std::max(s, static_cast<decltype(s)>(LZ4S_MIN_STREAM_BUFSIZE));
+	}();
+
+	const size_t nPool = 1;
+	Lz4Mt::MemPool srcBufferPool(inputBufferSize, nPool);
+	Lz4Mt::MemPool dstBufferPool(params.nBlockMaximumSize + LZ4S_CACHELINE, nPool);
+
+	const BufferPtr src(srcBufferPool.alloc());
+	const BufferPtr dst(dstBufferPool.alloc());
+
+	auto* const srcBuf = src->data();
+	auto* const srcEnd = srcBuf + src->size();
+	auto* const dstBuf = dst->data();
+
+	auto* in_start = srcBuf;
+
+	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
+
+	BlockDependentCompressor bdc(lz4MtContext->compressionLevel, srcBuf);
+
+	for(;;) {
+		if((in_start + params.nBlockMaximumSize) > srcEnd) {
+			in_start = bdc.translate();
+		}
+
+		const auto inSize = ctx->read(in_start, params.nBlockMaximumSize);
+		if(0 == inSize) {
+			break;
+		}
+
+		if(params.streamChecksum) {
+			xxhStream.update(in_start, inSize);
+		}
+
+		const auto outSize = bdc.compress(
+			  in_start
+			, dstBuf
+			, inSize
+			, inSize-1
+		);
+
+		struct WriteStat {
+			int bytes;
+			int header;
+			char* ptr;
+		};
+		const auto writeStat = [&]() -> WriteStat {
+			// NOTE for "-> WriteStat" :
+			//		It's a workaround for g++-4.6's strange warning.
+			WriteStat ws = { 0 };
+			if(outSize > 0) {
+				ws.bytes	= outSize;
+				ws.header	= outSize;
+				ws.ptr		= dstBuf;
+			} else {
+				ws.bytes	= inSize;
+				ws.header	= makeIncompless(inSize);
+				ws.ptr		= in_start;
+			}
+			return ws;
+		} ();
+
+		ctx->writeU32(writeStat.header);
+		ctx->writeBin(writeStat.ptr, writeStat.bytes);
+		if(params.blockCheckSumBytes) {
+			const auto xh = Lz4Mt::Xxh32(writeStat.ptr, writeStat.bytes, LZ4S_CHECKSUM_SEED).digest();
+			ctx->writeU32(xh);
+		}
+
+		in_start += inSize;
+	}
+
+	if(!ctx->writeU32(LZ4S_EOS)) {
+		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
+	}
+
+	if(params.streamChecksum) {
+		const auto digest = xxhStream.digest();
+		if(!ctx->writeU32(digest)) {
+			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
+		}
+	}
+
+	return LZ4MT_RESULT_OK;
+}
+
+
+} // anonymous namespace
+
+
+extern "C" Lz4MtContext
+lz4mtInitContext()
+{
+	Lz4MtContext e = { LZ4MT_RESULT_OK, 0 };
+
+	e.result			= LZ4MT_RESULT_OK;
+	e.readCtx			= nullptr;
+	e.read				= nullptr;
+	e.readEof			= nullptr;
+	e.readSkippable		= nullptr;
+	e.readSeek			= nullptr;
+	e.writeCtx			= nullptr;
+	e.write				= nullptr;
+	e.compress			= nullptr;
+	e.compressBound		= nullptr;
+	e.decompress		= nullptr;
+	e.mode				= LZ4MT_MODE_PARALLEL;
+	e.compressionLevel	= 0;
+
+	return e;
+}
+
+
+extern "C" Lz4MtStreamDescriptor
+lz4mtInitStreamDescriptor()
+{
+	Lz4MtStreamDescriptor e = { { 0 } };
+
+	e.flg.presetDictionary	= 0;
+	e.flg.streamChecksum	= 1;
+	e.flg.reserved1			= 0;
+	e.flg.streamSize		= 0;
+	e.flg.blockChecksum		= 0;
+	e.flg.blockIndependence	= 1;
+	e.flg.versionNumber		= 1;
+
+	e.bd.reserved3			= 0;
+	e.bd.blockMaximumSize	= LZ4S_BLOCKSIZEID_DEFAULT;
+	e.bd.reserved2			= 0;
+
+	e.streamSize			= 0;
+	e.dictId				= 0;
+
+	return e;
+}
+
+
+extern "C" Lz4MtResult
+lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+{
+	assert(lz4MtContext);
+	assert(sd);
+
+	if(sd->flg.blockIndependence) {
+		return compress(lz4MtContext, sd);
+	} else {
+		return compressBlockDependency(lz4MtContext, sd);
+	}
 }
 
 
