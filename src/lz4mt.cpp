@@ -279,6 +279,34 @@ private:
 };
 
 
+class Params {
+public:
+	Params(const Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+		: nBlockMaximumSize	 (getBlockSize(sd->bd.blockMaximumSize))
+		, blockCheckSumBytes (sd->flg.blockChecksum ? 4 : 0)
+		, streamChecksum	 (0 != sd->flg.streamChecksum)
+		, blockIndependence	 (0 != sd->flg.blockIndependence)
+		, singleThread		 (0 != (lz4MtContext->mode & LZ4MT_MODE_SEQUENTIAL))
+		, nPool				 (singleThread ? 1 : Lz4Mt::getHardwareConcurrency() + 1)
+		, launch			 (singleThread ? Lz4Mt::launch::deferred : std::launch::async)
+	{}
+
+private:
+	// TODO : We should use "= delete"
+	Params(const Params&);
+	Params& operator=(const Params&);
+
+public:
+	const int nBlockMaximumSize;
+	const int blockCheckSumBytes;
+	const bool streamChecksum;
+	const bool blockIndependence;
+	const bool singleThread;
+	const unsigned nPool;
+	const Lz4Mt::launch::Type launch;
+};
+
+
 class BlockDependentCompressor {
 public:
 	BlockDependentCompressor(int compressionLevel, const char* inputBuffer)
