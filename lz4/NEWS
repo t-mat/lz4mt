@@ -1,3 +1,13 @@
+r117:
+fix : block-dependency command line (issue 127)
+
+r116:
+hotfix (issue 124 & 125)
+
+r115:
+Added : lz4cat utility, installed on POSX systems (issue 118)
+OS-X compatible compilation of dynamic library (issue 115)
+
 r114:
 Makefile : library correctly compiled with -O3 switch (issue 114)
 Makefile : library compilation compatible with clang
