@@ -562,6 +562,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		return lz4mtCompressBlockDependency(lz4MtContext, sd);
 	}
 
+	Params params(lz4MtContext, sd);
 	Context ctx_(lz4MtContext);
 	Context* ctx = &ctx_;
 
@@ -569,23 +570,13 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		return ctx->result();
 	}
 
-	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
-	const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
-	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
-	const bool singleThread      = 0 != (ctx->mode() & LZ4MT_MODE_SEQUENTIAL);
-	const auto nConcurrency      = Lz4Mt::getHardwareConcurrency();
-	const auto nPool             = singleThread ? 1 : nConcurrency + 1;
-	const auto launch            = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
-
-	Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
-	Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
+	Lz4Mt::MemPool srcBufferPool(params.nBlockMaximumSize, params.nPool);
+	Lz4Mt::MemPool dstBufferPool(params.nBlockMaximumSize, params.nPool);
 	std::vector<std::future<void>> futures;
 	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
 	const auto f =
-		[&futures, &dstBufferPool, &xxhStream
-		 , ctx, nBlockCheckSum, streamChecksum, launch
-		 ]
+		[&futures, &dstBufferPool, &xxhStream, &params, ctx]
 		(int i, Lz4Mt::MemPool::Buffer* srcRawPtr, int srcSize)
 	{
 		BufferPtr src(srcRawPtr);
@@ -602,8 +593,8 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		const auto  cSize = incompressible ? srcSize : cmpSize;
 
 		std::future<uint32_t> futureBlockHash;
-		if(nBlockCheckSum) {
-			futureBlockHash = std::async(launch, [=] {
+		if(params.blockCheckSumBytes) {
+			futureBlockHash = std::async(params.launch, [=] {
 				return Lz4Mt::Xxh32(cPtr, cSize, LZ4S_CHECKSUM_SEED).digest();
 			});
 		}
@@ -617,8 +608,8 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		}
 
 		std::future<void> futureStreamHash;
-		if(streamChecksum) {
-			futureStreamHash = std::async(launch, [=, &xxhStream] {
+		if(params.streamChecksum) {
+			futureStreamHash = std::async(params.launch, [=, &xxhStream] {
 				xxhStream.update(srcPtr, srcSize);
 			});
 		}
@@ -650,10 +641,10 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 			break;
 		}
 
-		if(singleThread) {
+		if(params.singleThread) {
 			f(0, src.release(), readSize);
 		} else {
-			futures.emplace_back(std::async(launch, f, i, src.release(), readSize));
+			futures.emplace_back(std::async(params.launch, f, i, src.release(), readSize));
 		}
 	}
 
@@ -665,7 +656,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
 	}
 
-	if(streamChecksum) {
+	if(params.streamChecksum) {
 		const auto digest = xxhStream.digest();
 		if(!ctx->writeU32(digest)) {
 			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
