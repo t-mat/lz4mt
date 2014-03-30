@@ -611,6 +611,58 @@ compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor*
 }
 
 
+Lz4MtResult
+readHeader(Context* ctx, Lz4MtStreamDescriptor* sd)
+{
+	char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
+	auto* p = d;
+	const auto* sumBegin = p;
+
+	if(2 != ctx->read(p, 2)) {
+		return ctx->quit(LZ4MT_RESULT_INVALID_HEADER);
+	}
+	sd->flg = charToFlg(*p++);
+	sd->bd  = charToBd(*p++);
+
+	const auto r = validateStreamDescriptor(sd);
+	if(LZ4MT_RESULT_OK != r) {
+		return ctx->quit(r);
+	}
+
+	const int nExInfo =
+		  (sd->flg.streamSize       ? sizeof(uint64_t) : 0)
+		+ (sd->flg.presetDictionary ? sizeof(uint32_t) : 0)
+		+ 1
+	;
+	if(nExInfo != ctx->read(p, nExInfo)) {
+		return ctx->quit(LZ4MT_RESULT_INVALID_HEADER);
+	}
+
+	if(sd->flg.streamSize) {
+		sd->streamSize = loadU64(p);
+		p += sizeof(uint64_t);
+	}
+
+	if(sd->flg.presetDictionary) {
+		sd->dictId = loadU32(p);
+		p += sizeof(uint32_t);
+	}
+
+	const auto sumSize   = static_cast<int>(p - sumBegin);
+	const auto calHash32 = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
+	const auto calHash   = static_cast<char>(getCheckBits_FromXXH(calHash32));
+	const auto srcHash   = *p++;
+
+	assert(p <= std::end(d));
+
+	if(srcHash != calHash) {
+		return ctx->quit(LZ4MT_RESULT_INVALID_HEADER_CHECKSUM);
+	}
+
+	return LZ4MT_RESULT_OK;
+}
+
+
 } // anonymous namespace
 
 
@@ -722,58 +774,9 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 		}
 		magicNumberRecognized = true;
 
-		char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
-		auto* p = d;
-		const auto* sumBegin = p;
-
-		if(2 != ctx->read(p, 2)) {
-			ctx->setResult(LZ4MT_RESULT_INVALID_HEADER);
+		const auto readHeaderResult = readHeader(ctx, sd);
+		if(LZ4MT_RESULT_OK != readHeaderResult) {
 			continue;
-		}
-		sd->flg = charToFlg(*p++);
-		sd->bd  = charToBd(*p++);
-		{
-			const auto r = validateStreamDescriptor(sd);
-			if(LZ4MT_RESULT_OK != r) {
-				ctx->setResult(r);
-				continue;
-			}
-		}
-
-		{
-			const int nExInfo =
-				  (sd->flg.streamSize       ? sizeof(uint64_t) : 0)
-				+ (sd->flg.presetDictionary ? sizeof(uint32_t) : 0)
-				+ 1
-			;
-			if(nExInfo != ctx->read(p, nExInfo)) {
-				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER);
-				continue;
-			}
-
-			if(sd->flg.streamSize) {
-				sd->streamSize = loadU64(p);
-				p += sizeof(uint64_t);
-			}
-
-			if(sd->flg.presetDictionary) {
-				sd->dictId = loadU32(p);
-				p += sizeof(uint32_t);
-			}
-		}
-
-		{
-			const auto sumSize   = static_cast<int>(p - sumBegin);
-			const auto calHash32 = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
-			const auto calHash   = static_cast<char>(getCheckBits_FromXXH(calHash32));
-			const auto srcHash   = *p++;
-
-			assert(p <= std::end(d));
-
-			if(srcHash != calHash) {
-				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CHECKSUM);
-				continue;
-			}
 		}
 
 		Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
