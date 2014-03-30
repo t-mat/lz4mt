@@ -37,6 +37,10 @@ uint32_t getCheckBits_FromXXH(uint32_t xxh) {
 	return (xxh >> 8) & 0xff;
 }
 
+bool isMagicNumber(uint32_t magic) {
+	return LZ4S_MAGICNUMBER == magic;
+}
+
 bool isSkippableMagicNumber(uint32_t magic) {
 	return magic >= LZ4S_MAGICNUMBER_SKIPPABLE_MIN
 		&& magic <= LZ4S_MAGICNUMBER_SKIPPABLE_MAX;
@@ -643,28 +647,24 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			continue;
 		}
 
-		if(isSkippableMagicNumber(magic)) {
-			const auto size = ctx->readU32();
-			if(ctx->error()) {
-				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_SKIPPABLE_SIZE_UNREADABLE);
-			} else {
-				const auto s = ctx->readSkippable(magic, size);
-				if(s < 0 || ctx->error()) {
-					ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CANNOT_SKIP_SKIPPABLE_AREA);
+		if(! isMagicNumber(magic)) {
+			if(isSkippableMagicNumber(magic)) {
+				const auto size = ctx->readU32();
+				if(ctx->error()) {
+					ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_SKIPPABLE_SIZE_UNREADABLE);
+				} else {
+					const auto s = ctx->readSkippable(magic, size);
+					if(s < 0 || ctx->error()) {
+						ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CANNOT_SKIP_SKIPPABLE_AREA);
+					}
 				}
-			}
-			continue;
-		}
-
-		if(LZ4S_MAGICNUMBER != magic) {
-			ctx->readSeek(-4);
-
-			// See lz4/programs/lz4io.c : selectDecoder()
-			if(magicNumberRecognized) {
-			//	DISPLAYLEVEL(2, "Stream followed by unrecognized data\n");
-				ctx->setResult(LZ4MT_RESULT_OK);
 			} else {
-				ctx->setResult(LZ4MT_RESULT_INVALID_MAGIC_NUMBER);
+				ctx->readSeek(-4);
+				if(magicNumberRecognized) {
+					ctx->setResult(LZ4MT_RESULT_OK);
+				} else {
+					ctx->setResult(LZ4MT_RESULT_INVALID_MAGIC_NUMBER);
+				}
 			}
 			continue;
 		}
