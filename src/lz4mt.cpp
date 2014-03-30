@@ -453,10 +453,7 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 	assert(lz4MtContext);
 	assert(sd);
 
-	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
-	const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
-	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
-
+	Params params(lz4MtContext, sd);
 	Context ctx_(lz4MtContext);
 	Context* ctx = &ctx_;
 
@@ -467,13 +464,13 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 	const auto inputBufferSize = [&]() -> size_t {
 		// NOTE for "-> size_t" :
 		//		It's a workaround for g++-4.6's strange warning.
-		const auto s = nBlockMaximumSize + 65536;
+		const auto s = params.nBlockMaximumSize + 65536;
 		return std::max(s, static_cast<decltype(s)>(LZ4S_MIN_STREAM_BUFSIZE));
 	}();
 
 	const size_t nPool = 1;
 	Lz4Mt::MemPool srcBufferPool(inputBufferSize, nPool);
-	Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize + LZ4S_CACHELINE, nPool);
+	Lz4Mt::MemPool dstBufferPool(params.nBlockMaximumSize + LZ4S_CACHELINE, nPool);
 
 	const BufferPtr src(srcBufferPool.alloc());
 	const BufferPtr dst(dstBufferPool.alloc());
@@ -489,16 +486,16 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 	BlockDependentCompressor bdc(lz4MtContext->compressionLevel, srcBuf);
 
 	for(;;) {
-		if((in_start+nBlockMaximumSize) > srcEnd) {
+		if((in_start + params.nBlockMaximumSize) > srcEnd) {
 			in_start = bdc.translate();
 		}
 
-		const auto inSize = ctx->read(in_start, nBlockMaximumSize);
+		const auto inSize = ctx->read(in_start, params.nBlockMaximumSize);
 		if(0 == inSize) {
 			break;
 		}
 
-		if(streamChecksum) {
+		if(params.streamChecksum) {
 			xxhStream.update(in_start, inSize);
 		}
 
@@ -532,7 +529,7 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 
 		ctx->writeU32(writeStat.header);
 		ctx->writeBin(writeStat.ptr, writeStat.bytes);
-		if(nBlockCheckSum) {
+		if(params.blockCheckSumBytes) {
 			const auto xh = Lz4Mt::Xxh32(writeStat.ptr, writeStat.bytes, LZ4S_CHECKSUM_SEED).digest();
 			ctx->writeU32(xh);
 		}
@@ -544,7 +541,7 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
 	}
 
-	if(streamChecksum) {
+	if(params.streamChecksum) {
 		const auto digest = xxhStream.digest();
 		if(!ctx->writeU32(digest)) {
 			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
