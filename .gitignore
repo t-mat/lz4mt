@@ -12,3 +12,11 @@ lz4mt
 *.o
 *.a
 *.so.*
+
+lz4/programs/fullbench
+lz4/programs/fullbench32
+lz4/programs/fuzzer
+lz4/programs/fuzzer32
+lz4/programs/lz4
+lz4/programs/lz4c
+lz4/programs/lz4c32
