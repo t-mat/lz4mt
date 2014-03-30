@@ -2,6 +2,7 @@
 #define LZ4MT_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #if defined(__cplusplus)
 extern "C" {

@@ -27,6 +27,7 @@
     <ClCompile Include="..\src\lz4mt_compat.cpp" />
     <ClCompile Include="..\src\lz4mt_io_cstdio.cpp" />
     <ClCompile Include="..\src\lz4mt_mempool.cpp" />
+    <ClCompile Include="..\src\lz4mt_result.cpp" />
     <ClCompile Include="..\src\lz4mt_xxh32.cpp" />
     <ClCompile Include="..\src\main.cpp" />
   </ItemGroup>

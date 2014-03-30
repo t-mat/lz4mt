@@ -9,6 +9,10 @@
 #include "lz4mt_mempool.h"
 #include "lz4mt_compat.h"
 
+#include "lz4.h"
+#include "lz4hc.h"
+#include <string.h>
+
 
 namespace {
 
@@ -19,6 +23,8 @@ const uint32_t LZ4S_BLOCKSIZEID_DEFAULT = 7;
 const uint32_t LZ4S_CHECKSUM_SEED = 0;
 const uint32_t LZ4S_EOS = 0;
 const uint32_t LZ4S_MAX_HEADER_SIZE = 4 + 2 + 8 + 4 + 1;
+const uint32_t LZ4S_MIN_STREAM_BUFSIZE = (1024 + 64) * 1024;
+const uint32_t LZ4S_CACHELINE = 64;
 
 typedef std::unique_ptr<Lz4Mt::MemPool::Buffer> BufferPtr;
 
@@ -118,10 +124,6 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 	if(0 != sd->flg.reserved1) {
 		return LZ4MT_RESULT_INVALID_HEADER_RESERVED1;
 	}
-	if(0 == sd->flg.blockIndependence) {
-		///	@TODO: Implement Block Dependency. lz4: r96 - https://code.google.com/p/lz4/source/detail?r=96
-		return LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET;
-	}
 	if(sd->bd.blockMaximumSize < 4 || sd->bd.blockMaximumSize > 7) {
 		return LZ4MT_RESULT_INVALID_BLOCK_MAXIMUM_SIZE;
 	}
@@ -158,6 +160,10 @@ public:
 	Lz4MtResult result() {
 		Lock lock(mutResult);
 		return ctx->result;
+	}
+
+	int compressionLevel() const {
+		return ctx->compressionLevel;
 	}
 
 	uint32_t readU32() {
@@ -237,6 +243,60 @@ private:
 };
 
 
+class BlockDependentCompressor {
+public:
+	BlockDependentCompressor(int compressionLevel, const char* inputBuffer)
+		: lz4Ctx(nullptr)
+		, initFunction()
+		, freeFunction()
+		, compressFunction()
+		, translateFunction()
+	{
+		const bool isHc = (compressionLevel >= 3);
+		if(isHc) {
+			initFunction      = LZ4_createHC;
+			compressFunction  = LZ4_compressHC_limitedOutput_continue;
+			translateFunction = LZ4_slideInputBufferHC;
+			freeFunction      = LZ4_freeHC;
+		} else {
+			initFunction      = LZ4_create;
+			compressFunction  = LZ4_compress_limitedOutput_continue;
+			translateFunction = LZ4_slideInputBuffer;
+			freeFunction      = LZ4_free;
+		}
+
+		lz4Ctx = initFunction(inputBuffer);
+	}
+
+private:
+	BlockDependentCompressor(const BlockDependentCompressor& bdc);
+	BlockDependentCompressor& operator=(const BlockDependentCompressor& bdc);
+
+public:
+	~BlockDependentCompressor() {
+		if(lz4Ctx) {
+			freeFunction(lz4Ctx);
+			lz4Ctx = nullptr;
+		}
+	}
+
+	int compress(const char* source, char* dest, int inputSize, int maxOutputSize) {
+		return compressFunction(lz4Ctx, source, dest, inputSize, maxOutputSize);
+	}
+
+	char* translate() {
+		return translateFunction(lz4Ctx);
+	}
+
+private:
+	void* lz4Ctx;
+	std::function<void*(const char*)> initFunction;
+	std::function<int(void*)> freeFunction;
+	std::function<int(void*, const char*, char*, int, int)> compressFunction;
+	std::function<char*(void*)> translateFunction;
+};
+
+
 } // anonymous namespace
 
 
@@ -287,272 +347,149 @@ lz4mtInitStreamDescriptor()
 }
 
 
-extern "C" const char*
-lz4mtResultToString(Lz4MtResult result)
-{
-	const char* s = "???";
-	switch(result) {
-	case LZ4MT_RESULT_OK:
-		s = "OK";
-		break;
-	case LZ4MT_RESULT_ERROR:
-		s = "ERROR";
-		break;
-	case LZ4MT_RESULT_INVALID_MAGIC_NUMBER:
-		s = "INVALID_MAGIC_NUMBER";
-		break;
-	case LZ4MT_RESULT_INVALID_HEADER:
-		s = "INVALID_HEADER";
-		break;
-	case LZ4MT_RESULT_PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET:
-		s = "PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET";
-		break;
-	case LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET:
-		s = "BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET";
-		break;
-	case LZ4MT_RESULT_INVALID_VERSION:
-		s = "INVALID_VERSION";
-		break;
-	case LZ4MT_RESULT_INVALID_HEADER_CHECKSUM:
-		s = "INVALID_HEADER_CHECKSUM";
-		break;
-	case LZ4MT_RESULT_INVALID_BLOCK_MAXIMUM_SIZE:
-		s = "INVALID_BLOCK_MAXIMUM_SIZE";
-		break;
-	case LZ4MT_RESULT_CANNOT_WRITE_HEADER:
-		s = "CANNOT_WRITE_HEADER";
-		break;
-	case LZ4MT_RESULT_CANNOT_WRITE_EOS:
-		s = "CANNOT_WRITE_EOS";
-		break;
-	case LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM:
-		s = "CANNOT_WRITE_STREAM_CHECKSUM";
-		break;
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE:
-		s = "CANNOT_READ_BLOCK_SIZE";
-		break;
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA:
-		s = "CANNOT_READ_BLOCK_DATA";
-		break;
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM:
-		s = "CANNOT_READ_BLOCK_CHECKSUM";
-		break;
-	case LZ4MT_RESULT_CANNOT_READ_STREAM_CHECKSUM:
-		s = "CANNOT_READ_STREAM_CHECKSUM";
-		break;
-	case LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH:
-		s = "STREAM_CHECKSUM_MISMATCH";
-		break;
-	case LZ4MT_RESULT_DECOMPRESS_FAIL:
-		s = "DECOMPRESS_FAIL";
-		break;
-	case LZ4MT_RESULT_BAD_ARG:
-		s = "BAD_ARG";
-		break;
-	case LZ4MT_RESULT_INVALID_BLOCK_SIZE:
-		s = "INVALID_BLOCK_SIZE";
-		break;
-	case LZ4MT_RESULT_INVALID_HEADER_RESERVED1:
-		s = "INVALID_HEADER_RESERVED1";
-		break;
-	case LZ4MT_RESULT_INVALID_HEADER_RESERVED2:
-		s = "INVALID_HEADER_RESERVED2";
-		break;
-	case LZ4MT_RESULT_INVALID_HEADER_RESERVED3:
-		s = "INVALID_HEADER_RESERVED3";
-		break;
-	case LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK:
-		s = "CANNOT_WRITE_DATA_BLOCK";
-		break;
-	case LZ4MT_RESULT_CANNOT_WRITE_DECODED_BLOCK:
-		s = "CANNOT_WRITE_DECODED_BLOCK";
-		break;
-	default:
-		s = "Unknown code";
-		break;
+static Lz4MtResult
+lz4mtCompressMakeHeader(Context* ctx, const Lz4MtStreamDescriptor* sd) {
+	char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
+	auto p = &d[0];
+
+	const auto r = validateStreamDescriptor(sd);
+	if(LZ4MT_RESULT_OK != r) {
+		return ctx->setResult(r);
 	}
-	return s;
+	p += storeU32(p, LZ4S_MAGICNUMBER);
+
+	const auto* sumBegin = p;
+	*p++ = flgToChar(sd->flg);
+	*p++ = bdToChar(sd->bd);
+	if(sd->flg.streamSize) {
+		assert(sd->streamSize);
+		p += storeU64(p, sd->streamSize);
+	}
+	if(sd->flg.presetDictionary) {
+		p += storeU32(p, sd->dictId);
+	}
+
+	const auto sumSize = static_cast<int>(p - sumBegin);
+	const auto h = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
+	*p++ = static_cast<char>(getCheckBits_FromXXH(h));
+	assert(p <= std::end(d));
+
+	const auto writeSize = static_cast<int>(p - d);
+	if(writeSize != ctx->write(d, writeSize)) {
+		return ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_HEADER);
+	}
+
+	return LZ4MT_RESULT_OK;
 }
 
 
-extern "C" int
-lz4mtResultToLz4cExitCode(Lz4MtResult result) {
-	int e = 1;
-	switch(result) {
-	case LZ4MT_RESULT_OK:
-		e = 0;
-		break;
+static Lz4MtResult
+lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+{
+	assert(lz4MtContext);
+	assert(sd);
 
-	case LZ4MT_RESULT_ERROR:
-		e = 1;
-		break;
+	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
+	const auto nBlockSize        = 4;
+	const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
+	const auto cIncompressible   = 1 << (nBlockSize * 8 - 1);
+	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 
-	case LZ4MT_RESULT_INVALID_MAGIC_NUMBER:
-		//	selectDecoder()
-		//		if (ftell(finput) == MAGICNUMBER_SIZE) EXM_THROW(44,"Unrecognized header : file cannot be decoded");   // Wrong magic number at the beginning of 1st stream
-		e = 44;
-		break;
+	Context ctx_(lz4MtContext);
+	Context* ctx = &ctx_;
 
-	case LZ4MT_RESULT_INVALID_HEADER_SKIPPABLE_SIZE_UNREADABLE:
-		//	selectDecoder()
-		//		if (nbReadBytes != 4) EXM_THROW(42, "Stream error : skippable size unreadable");
-		e = 42;
-		break;
-
-	case LZ4MT_RESULT_INVALID_HEADER_CANNOT_SKIP_SKIPPABLE_AREA:
-		//	selectDecoder()
-		//		if (errorNb != 0) EXM_THROW(43, "Stream error : cannot skip skippable area");
-		e = 43;
-		break;
-
-	case LZ4MT_RESULT_BLOCK_DEPENDENCE_IS_NOT_SUPPORTED_YET:
-		e = 1;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_WRITE_HEADER:
-		//	compress_file_blockDependency()
-		//	LZ4IO_compressFilename()
-		//		if (sizeCheck!=header_size) EXM_THROW(32, "Write error : cannot write header");
-		//
-		e = 32;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_WRITE_EOS:
-		//	compress_file_blockDependency()
-		//	LZ4IO_compressFilename()
-		//		if (sizeCheck!=(size_t)(4)) EXM_THROW(37, "Write error : cannot write end of stream");
-		//
-		e = 37;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM:
-		//	compress_file_blockDependency()
-		//	LZ4IO_compressFilename()
-		//		if (sizeCheck!=(size_t)(4)) EXM_THROW(37, "Write error : cannot write stream checksum");
-		e = 37;
-		break;
-
-	case LZ4MT_RESULT_INVALID_HEADER:
-		//	decodeLZ4S()
-		//		if (nbReadBytes != 3) EXM_THROW(61, "Unreadable header");
-		e = 61;
-		break;
-
-	case LZ4MT_RESULT_INVALID_VERSION:
-		//decodeLZ4S()
-		//		if (version != 1)       EXM_THROW(62, "Wrong version number");
-		e = 62;
-		break;
-
-	case LZ4MT_RESULT_INVALID_HEADER_RESERVED1:
-		//decodeLZ4S()
-		//		if (reserved1 != 0)     EXM_THROW(65, "Wrong value for reserved bits");
-		e = 65;
-		break;
-
-	case LZ4MT_RESULT_PRESET_DICTIONARY_IS_NOT_SUPPORTED_YET:
-		//	decodeLZ4S()
-		//		if (dictionary == 1)    EXM_THROW(66, "Does not support dictionary");
-		e = 66;
-		break;
-
-	case LZ4MT_RESULT_INVALID_HEADER_RESERVED2:
-		//decodeLZ4S()
-		//		if (reserved2 != 0)     EXM_THROW(67, "Wrong value for reserved bits");
-		e = 67;
-		break;
-
-	case LZ4MT_RESULT_INVALID_HEADER_RESERVED3:
-		//decodeLZ4S()
-		//		if (reserved3 != 0)     EXM_THROW(67, "Wrong value for reserved bits");
-		e = 67;
-		break;
-
-	case LZ4MT_RESULT_INVALID_BLOCK_MAXIMUM_SIZE:
-		//	decodeLZ4S()
-		//		if (blockSizeId < 4)    EXM_THROW(68, "Unsupported block size");
-		e = 68;
-		break;
-
-	case LZ4MT_RESULT_INVALID_HEADER_CHECKSUM:
-		//	decodeLZ4S()
-		//		if (checkBits != checkBits_xxh32) EXM_THROW(69, "Stream descriptor error detected");
-		e = 69;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE:
-		//	decodeLZ4S()
-		//		if( nbReadBytes != 4 ) EXM_THROW(71, "Read error : cannot read next block size");
-		e = 71;
-		break;
-
-	case LZ4MT_RESULT_INVALID_BLOCK_SIZE:
-		//	decodeLZ4S()
-		//		if (blockSize > maxBlockSize) EXM_THROW(72, "Error : invalid block size");
-		e = 72;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA:
-		//	decodeLZ4S()
-		//		if( nbReadBytes != blockSize ) EXM_THROW(73, "Read error : cannot read data block" );
-		e = 73;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM:
-		//	decodeLZ4S()
-		//		if( sizeCheck != 4 ) EXM_THROW(74, "Read error : cannot read next block size");
-		e = 74;
-		break;
-
-	case LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH:
-		//	decodeLZ4S()
-		//		if (checksum != readChecksum) EXM_THROW(75, "Error : invalid block checksum detected");
-		e = 75;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_READ_STREAM_CHECKSUM:
-		//	decodeLZ4S()
-		//		if (sizeCheck != 4) EXM_THROW(74, "Read error : cannot read stream checksum");
-		e = 74;
-		break;
-
-	case LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH:
-		//	decodeLZ4S()
-		//		if (checksum != readChecksum) EXM_THROW(75, "Error : invalid stream checksum detected");
-		e = 75;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK:
-		//	cannot write incompressible block
-		//	decodeLZ4S()
-		//		if (sizeCheck != (size_t)blockSize) EXM_THROW(76, "Write error : cannot write data block");
-		e = 76;
-		break;
-
-	case LZ4MT_RESULT_DECOMPRESS_FAIL:
-		//	decodeLZ4S()
-		//		if (decodedBytes < 0) EXM_THROW(77, "Decoding Failed ! Corrupted input detected !");
-		e = 77;
-		break;
-
-	case LZ4MT_RESULT_CANNOT_WRITE_DECODED_BLOCK:
-		//	decodeLZ4S()
-		//		if (sizeCheck != (size_t)decodedBytes) EXM_THROW(78, "Write error : cannot write decoded block\n");
-		e = 78;
-		break;
-
-	default:
-		//	LZ4IO_compressFilename_Legacy()
-		//		if (!in_buff || !out_buff) EXM_THROW(21, "Allocation error : not enough memory");
-		//		if (sizeCheck!=MAGICNUMBER_SIZE) EXM_THROW(22, "Write error : cannot write header");
-		//
-		//	decodeLZ4S()
-		//		if (streamSize == 1)    EXM_THROW(64, "Does not support stream size");
-		//			NOTE : lz4mt support the streamSize header flag.
-		e = 1;
-		break;
+	if(LZ4MT_RESULT_OK != lz4mtCompressMakeHeader(ctx, sd)) {
+		return ctx->result();
 	}
-	return e;
+
+	const auto inputBufferSize = [&]() -> size_t {
+		// NOTE for "-> size_t" :
+		//		It's a workaround for g++-4.6's strange warning.
+		const auto s = nBlockMaximumSize + 65536;
+		return std::max(s, static_cast<decltype(s)>(LZ4S_MIN_STREAM_BUFSIZE));
+	}();
+
+	const size_t nPool = 1;
+	Lz4Mt::MemPool srcBufferPool(inputBufferSize, nPool);
+	Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize + LZ4S_CACHELINE, nPool);
+
+	const BufferPtr src(srcBufferPool.alloc());
+	const BufferPtr dst(dstBufferPool.alloc());
+
+	auto* const srcBuf = src->data();
+	auto* const srcEnd = srcBuf + src->size();
+	auto* const dstBuf = dst->data();
+
+	auto* in_start = srcBuf;
+
+	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
+
+	BlockDependentCompressor bdc(lz4MtContext->compressionLevel, srcBuf);
+
+	for(;;) {
+		if((in_start+nBlockMaximumSize) > srcEnd) {
+			in_start = bdc.translate();
+		}
+
+		const auto inSize = ctx->read(in_start, nBlockMaximumSize);
+		if(0 == inSize) {
+			break;
+		}
+
+		if(streamChecksum) {
+			xxhStream.update(in_start, inSize);
+		}
+
+		const auto outSize = bdc.compress(
+			  in_start
+			, dstBuf
+			, inSize
+			, inSize-1
+		);
+
+		struct WriteStat {
+			int bytes;
+			int header;
+			char* ptr;
+		};
+		const auto writeStat = [&]() -> WriteStat {
+			// NOTE for "-> WriteStat" :
+			//		It's a workaround for g++-4.6's strange warning.
+			WriteStat ws = { 0 };
+			if(outSize > 0) {
+				ws.bytes	= outSize;
+				ws.header	= outSize;
+				ws.ptr		= dstBuf;
+			} else {
+				ws.bytes	= inSize;
+				ws.header	= inSize | cIncompressible;
+				ws.ptr		= in_start;
+			}
+			return ws;
+		} ();
+
+		ctx->writeU32(writeStat.header);
+		ctx->writeBin(writeStat.ptr, writeStat.bytes);
+		if(nBlockCheckSum) {
+			const auto xh = Lz4Mt::Xxh32(writeStat.ptr, writeStat.bytes, LZ4S_CHECKSUM_SEED).digest();
+			ctx->writeU32(xh);
+		}
+
+		in_start += inSize;
+	}
+
+	if(!ctx->writeU32(LZ4S_EOS)) {
+		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
+	}
+
+	if(streamChecksum) {
+		const auto digest = xxhStream.digest();
+		if(!ctx->writeU32(digest)) {
+			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
+		}
+	}
+
+	return LZ4MT_RESULT_OK;
 }
 
 
@@ -562,39 +499,15 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 	assert(lz4MtContext);
 	assert(sd);
 
+	if(0 == sd->flg.blockIndependence) {
+		return lz4mtCompressBlockDependency(lz4MtContext, sd);
+	}
+
 	Context ctx_(lz4MtContext);
 	Context* ctx = &ctx_;
 
-	{
-		char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
-		auto p = &d[0];
-
-		const auto r = validateStreamDescriptor(sd);
-		if(LZ4MT_RESULT_OK != r) {
-			return ctx->setResult(r);
-		}
-		p += storeU32(p, LZ4S_MAGICNUMBER);
-
-		const auto* sumBegin = p;
-		*p++ = flgToChar(sd->flg);
-		*p++ = bdToChar(sd->bd);
-		if(sd->flg.streamSize) {
-			assert(sd->streamSize);
-			p += storeU64(p, sd->streamSize);
-		}
-		if(sd->flg.presetDictionary) {
-			p += storeU32(p, sd->dictId);
-		}
-
-		const auto sumSize = static_cast<int>(p - sumBegin);
-		const auto h = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
-		*p++ = static_cast<char>(getCheckBits_FromXXH(h));
-		assert(p <= std::end(d));
-
-		const auto writeSize = static_cast<int>(p - d);
-		if(writeSize != ctx->write(d, writeSize)) {
-			return ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_HEADER);
-		}
+	if(LZ4MT_RESULT_OK != lz4mtCompressMakeHeader(ctx, sd)) {
+		return ctx->result();
 	}
 
 	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
@@ -727,19 +640,18 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			} else {
 				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER);
 			}
-			break;
+			continue;
 		}
 
 		if(isSkippableMagicNumber(magic)) {
 			const auto size = ctx->readU32();
 			if(ctx->error()) {
 				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_SKIPPABLE_SIZE_UNREADABLE);
-				break;
-			}
-			const auto s = ctx->readSkippable(magic, size);
-			if(s < 0 || ctx->error()) {
-				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CANNOT_SKIP_SKIPPABLE_AREA);
-				break;
+			} else {
+				const auto s = ctx->readSkippable(magic, size);
+				if(s < 0 || ctx->error()) {
+					ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CANNOT_SKIP_SKIPPABLE_AREA);
+				}
 			}
 			continue;
 		}
@@ -754,7 +666,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 			} else {
 				ctx->setResult(LZ4MT_RESULT_INVALID_MAGIC_NUMBER);
 			}
-			break;
+			continue;
 		}
 		magicNumberRecognized = true;
 
@@ -764,212 +676,336 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 
 		if(2 != ctx->read(p, 2)) {
 			ctx->setResult(LZ4MT_RESULT_INVALID_HEADER);
-			break;
+			continue;
 		}
 		sd->flg = charToFlg(*p++);
 		sd->bd  = charToBd(*p++);
-		const auto r = validateStreamDescriptor(sd);
-		if(LZ4MT_RESULT_OK != r) {
-			ctx->setResult(r);
-			break;
+		{
+			const auto r = validateStreamDescriptor(sd);
+			if(LZ4MT_RESULT_OK != r) {
+				ctx->setResult(r);
+				continue;
+			}
 		}
 
-		const int nExInfo =
-			  (sd->flg.streamSize       ? sizeof(uint64_t) : 0)
-			+ (sd->flg.presetDictionary ? sizeof(uint32_t) : 0)
-			+ 1
-		;
-		if(nExInfo != ctx->read(p, nExInfo)) {
-			ctx->setResult(LZ4MT_RESULT_INVALID_HEADER);
-			break;
+		{
+			const int nExInfo =
+				  (sd->flg.streamSize       ? sizeof(uint64_t) : 0)
+				+ (sd->flg.presetDictionary ? sizeof(uint32_t) : 0)
+				+ 1
+			;
+			if(nExInfo != ctx->read(p, nExInfo)) {
+				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER);
+				continue;
+			}
+
+			if(sd->flg.streamSize) {
+				sd->streamSize = loadU64(p);
+				p += sizeof(uint64_t);
+			}
+
+			if(sd->flg.presetDictionary) {
+				sd->dictId = loadU32(p);
+				p += sizeof(uint32_t);
+			}
 		}
 
-		if(sd->flg.streamSize) {
-			sd->streamSize = loadU64(p);
-			p += sizeof(uint64_t);
-		}
+		{
+			const auto sumSize   = static_cast<int>(p - sumBegin);
+			const auto calHash32 = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
+			const auto calHash   = static_cast<char>(getCheckBits_FromXXH(calHash32));
+			const auto srcHash   = *p++;
 
-		if(sd->flg.presetDictionary) {
-			sd->dictId = loadU32(p);
-			p += sizeof(uint32_t);
-		}
+			assert(p <= std::end(d));
 
-		const auto sumSize   = static_cast<int>(p - sumBegin);
-		const auto calHash32 = Lz4Mt::Xxh32(sumBegin, sumSize, LZ4S_CHECKSUM_SEED).digest();
-		const auto calHash   = static_cast<char>(getCheckBits_FromXXH(calHash32));
-		const auto srcHash   = *p++;
-
-		assert(p <= std::end(d));
-
-		if(srcHash != calHash) {
-			ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CHECKSUM);
-			break;
+			if(srcHash != calHash) {
+				ctx->setResult(LZ4MT_RESULT_INVALID_HEADER_CHECKSUM);
+				continue;
+			}
 		}
 
 		const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
 		const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
 		const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 		const bool singleThread      = 0 != (ctx->mode() & LZ4MT_MODE_SEQUENTIAL);
+		const bool blockIndependence = 0 != sd->flg.blockIndependence;
 		const auto nConcurrency      = Lz4Mt::getHardwareConcurrency();
 		const auto nPool             = singleThread ? 1 : nConcurrency + 1;
 		const auto launch            = singleThread ? Lz4Mt::launch::deferred : std::launch::async;
-
-		Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
-		Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
-		std::vector<std::future<void>> futures;
 		Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
-		const auto f = [
-			&futures, &dstBufferPool, &xxhStream, &quit
-			, ctx, nBlockCheckSum, streamChecksum, launch
-		] (int i, Lz4Mt::MemPool::Buffer* srcRaw, bool incompressible, uint32_t blockChecksum)
-		{
-			BufferPtr src(srcRaw);
-			if(ctx->error() || quit) {
+		if(! blockIndependence) {
+			const size_t prefix64k = 64 * 1024;
+
+			const size_t nPool = 1;
+			Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
+			Lz4Mt::MemPool dstBufferPool(prefix64k + nBlockMaximumSize, nPool);
+
+			const BufferPtr src(srcBufferPool.alloc());
+			const BufferPtr dst(dstBufferPool.alloc());
+
+			auto* dstPtr = dst->data() + prefix64k;
+
+			bool eos = false;
+			for(; !eos && !quit && !ctx->readEof();) {
+				const auto srcBits = ctx->readU32();
+				if(ctx->error()) {
+					quit = true;
+					ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE);
+					continue;
+				}
+
+				if(LZ4S_EOS == srcBits) {
+					eos = true;
+					continue;
+				}
+
+				const auto incompMask     = (1 << 31);
+				const bool incompressible = 0 != (srcBits & incompMask);
+				{
+					const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
+
+					if(srcSize > nBlockMaximumSize) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_INVALID_BLOCK_SIZE);
+						continue;
+					}
+
+					const auto readSize = ctx->read(src->data(), srcSize);
+					if(srcSize != readSize || ctx->error()) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA);
+						continue;
+					}
+					src->resize(srcSize);
+				}
+
+				const auto blockCheckSum = nBlockCheckSum ? ctx->readU32() : 0;
+				if(ctx->error()) {
+					quit = true;
+					ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM);
+					continue;
+				}
+
+				if(nBlockCheckSum) {
+					const auto hash = Lz4Mt::Xxh32(src->data(), static_cast<int>(src->size()), LZ4S_CHECKSUM_SEED).digest();
+					if(hash != blockCheckSum) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH);
+						continue;
+					}
+				}
+
+				int decodedBytes = 0;
+
+				if(incompressible) {
+					if(! ctx->writeBin(src->data(), static_cast<int>(src->size()))) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK);
+						continue;
+					}
+
+					if(streamChecksum) {
+						xxhStream.update(src->data(), static_cast<int>(src->size()));
+					}
+
+					if(src->size() >= prefix64k) {
+						memcpy(dst->data(), src->data() + src->size() - prefix64k, prefix64k);
+						dstPtr = dst->data() + prefix64k;
+						continue;
+					} else {
+						memcpy(dstPtr, src->data(), src->size());
+						decodedBytes = static_cast<int>(src->size());
+					}
+				} else {
+					decodedBytes = LZ4_decompress_safe_withPrefix64k(
+						src->data()
+						, dstPtr
+						, static_cast<int>(src->size())
+						, nBlockMaximumSize
+					);
+					if(decodedBytes < 0) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_DECOMPRESS_FAIL);
+						continue;
+					}
+					
+					if(streamChecksum) {
+						xxhStream.update(dstPtr, decodedBytes);
+					}
+
+					if(! ctx->writeBin(dstPtr, decodedBytes)) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK);
+						continue;
+					}
+				}
+
+				dstPtr += decodedBytes;
+				if(dst->data() + dst->size() - dstPtr < nBlockMaximumSize) {
+					memcpy(dst->data(), dstPtr - prefix64k, prefix64k);
+					dstPtr = dst->data() + prefix64k;
+				}
+			}
+		} else {
+			Lz4Mt::MemPool srcBufferPool(nBlockMaximumSize, nPool);
+			Lz4Mt::MemPool dstBufferPool(nBlockMaximumSize, nPool);
+			std::vector<std::future<void>> futures;
+
+			const auto f = [
+				&futures, &dstBufferPool, &xxhStream, &quit
+				, ctx, nBlockCheckSum, streamChecksum, launch
+			] (int i, Lz4Mt::MemPool::Buffer* srcRaw, bool incompressible, uint32_t blockChecksum)
+			{
+				BufferPtr src(srcRaw);
+				if(ctx->error() || quit) {
+					return;
+				}
+
+				const auto* srcPtr = src->data();
+				const auto srcSize = static_cast<int>(src->size());
+
+				std::future<uint32_t> futureBlockHash;
+				if(nBlockCheckSum) {
+					futureBlockHash = std::async(launch, [=] {
+						return Lz4Mt::Xxh32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED).digest();
+					});
+				}
+
+				if(incompressible) {
+					if(i > 0) {
+						futures[i-1].wait();
+					}
+
+					std::future<void> futureStreamHash;
+					if(streamChecksum) {
+						futureStreamHash = std::async(
+							  launch
+							, [&xxhStream, srcPtr, srcSize] {
+								xxhStream.update(srcPtr, srcSize);
+							}
+						);
+					}
+					if(! ctx->writeBin(srcPtr, srcSize)) {
+						ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK);
+						quit = true;
+						return;
+					}
+					if(futureStreamHash.valid()) {
+						futureStreamHash.wait();
+					}
+				} else {
+					BufferPtr dst(dstBufferPool.alloc());
+
+					auto* dstPtr = dst->data();
+					const auto dstSize = dst->size();
+					const auto decSize = ctx->decompress(
+						srcPtr, dstPtr, srcSize, static_cast<int>(dstSize));
+					if(decSize < 0) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_DECOMPRESS_FAIL);
+						return;
+					}
+
+					if(i > 0) {
+						futures[i-1].wait();
+					}
+
+					std::future<void> futureStreamHash;
+					if(streamChecksum) {
+						futureStreamHash = std::async(
+							  launch
+							, [&xxhStream, dstPtr, decSize] {
+								xxhStream.update(dstPtr, decSize);
+							}
+						);
+					}
+					if(! ctx->writeBin(dstPtr, decSize)) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DECODED_BLOCK);
+						return;
+					}
+
+					if(futureStreamHash.valid()) {
+						futureStreamHash.wait();
+					}
+				}
+
+				if(futureBlockHash.valid()) {
+					auto bh = futureBlockHash.get();
+					if(bh != blockChecksum) {
+						quit = true;
+						ctx->setResult(LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH);
+						return;
+					}
+				}
 				return;
-			}
+			};
 
-			const auto* srcPtr = src->data();
-			const auto srcSize = static_cast<int>(src->size());
-
-			std::future<uint32_t> futureBlockHash;
-			if(nBlockCheckSum) {
-				futureBlockHash = std::async(launch, [=] {
-					return Lz4Mt::Xxh32(srcPtr, srcSize, LZ4S_CHECKSUM_SEED).digest();
-				});
-			}
-
-			if(incompressible) {
-				if(i > 0) {
-					futures[i-1].wait();
+			bool eos = false;
+			for(int i = 0; !eos && !quit && !ctx->readEof(); ++i) {
+				const auto srcBits = ctx->readU32();
+				if(ctx->error()) {
+					quit = true;
+					ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE);
+					continue;
 				}
 
-				std::future<void> futureStreamHash;
-				if(streamChecksum) {
-					futureStreamHash = std::async(
+				if(LZ4S_EOS == srcBits) {
+					eos = true;
+					continue;
+				}
+
+				const auto incompMask     = (1 << 31);
+				const bool incompressible = 0 != (srcBits & incompMask);
+				const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
+
+				if(srcSize > nBlockMaximumSize) {
+					quit = true;
+					ctx->setResult(LZ4MT_RESULT_INVALID_BLOCK_SIZE);
+					continue;
+				}
+
+				BufferPtr src(srcBufferPool.alloc());
+				const auto readSize = ctx->read(src->data(), srcSize);
+				if(srcSize != readSize || ctx->error()) {
+					quit = true;
+					ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA);
+					continue;
+				}
+				src->resize(readSize);
+
+				const auto blockCheckSum = nBlockCheckSum ? ctx->readU32() : 0;
+				if(ctx->error()) {
+					quit = true;
+					ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM);
+					continue;
+				}
+
+				if(singleThread) {
+					f(0, src.release(), incompressible, blockCheckSum);
+				} else {
+					futures.emplace_back(std::async(
 						  launch
-						, [&xxhStream, srcPtr, srcSize] {
-							xxhStream.update(srcPtr, srcSize);
-						}
-					);
-				}
-				if(! ctx->writeBin(srcPtr, srcSize)) {
-					ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK);
-					quit = true;
-					return;
-				}
-				if(futureStreamHash.valid()) {
-					futureStreamHash.wait();
-				}
-			} else {
-				BufferPtr dst(dstBufferPool.alloc());
-
-				auto* dstPtr = dst->data();
-				const auto dstSize = dst->size();
-				const auto decSize = ctx->decompress(
-					srcPtr, dstPtr, srcSize, static_cast<int>(dstSize));
-				if(decSize < 0) {
-					quit = true;
-					ctx->setResult(LZ4MT_RESULT_DECOMPRESS_FAIL);
-					return;
-				}
-
-				if(i > 0) {
-					futures[i-1].wait();
-				}
-
-				std::future<void> futureStreamHash;
-				if(streamChecksum) {
-					futureStreamHash = std::async(
-						  launch
-						, [&xxhStream, dstPtr, decSize] {
-							xxhStream.update(dstPtr, decSize);
-						}
-					);
-				}
-				if(! ctx->writeBin(dstPtr, decSize)) {
-					ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DECODED_BLOCK);
-					quit = true;
-					return;
-				}
-
-				if(futureStreamHash.valid()) {
-					futureStreamHash.wait();
+						, f, i, src.release(), incompressible, blockCheckSum
+					));
 				}
 			}
 
-			if(futureBlockHash.valid()) {
-				auto bh = futureBlockHash.get();
-				if(bh != blockChecksum) {
-					quit = true;
-					ctx->setResult(LZ4MT_RESULT_BLOCK_CHECKSUM_MISMATCH);
-					return;
-				}
+			for(auto& e : futures) {
+				e.wait();
 			}
-			return;
-		};
-
-		for(int i = 0; !quit && !ctx->readEof(); ++i) {
-			const auto srcBits = ctx->readU32();
-			if(ctx->error()) {
-				quit = true;
-				ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_SIZE);
-				break;
-			}
-
-			if(LZ4S_EOS == srcBits) {
-				break;
-			}
-
-			const auto incompMask     = (1 << 31);
-			const bool incompressible = 0 != (srcBits & incompMask);
-			const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
-
-			if(srcSize > nBlockMaximumSize) {
-				quit = true;
-				ctx->setResult(LZ4MT_RESULT_INVALID_BLOCK_SIZE);
-				break;
-			}
-
-			BufferPtr src(srcBufferPool.alloc());
-			const auto readSize = ctx->read(src->data(), srcSize);
-			if(srcSize != readSize || ctx->error()) {
-				quit = true;
-				ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_DATA);
-				break;
-			}
-			src->resize(readSize);
-
-			const auto blockCheckSum = nBlockCheckSum ? ctx->readU32() : 0;
-			if(ctx->error()) {
-				quit = true;
-				ctx->setResult(LZ4MT_RESULT_CANNOT_READ_BLOCK_CHECKSUM);
-				break;
-			}
-
-			if(singleThread) {
-				f(0, src.release(), incompressible, blockCheckSum);
-			} else {
-				futures.emplace_back(std::async(
-					  launch
-					, f, i, src.release(), incompressible, blockCheckSum
-				));
-			}
-		}
-
-		for(auto& e : futures) {
-			e.wait();
 		}
 
 		if(!ctx->error() && streamChecksum) {
 			const auto srcStreamChecksum = ctx->readU32();
 			if(ctx->error()) {
 				ctx->setResult(LZ4MT_RESULT_CANNOT_READ_STREAM_CHECKSUM);
-				break;
+				continue;
 			}
 			if(xxhStream.digest() != srcStreamChecksum) {
 				ctx->setResult(LZ4MT_RESULT_STREAM_CHECKSUM_MISMATCH);
-				break;
+				continue;
 			}
 		}
 	}
