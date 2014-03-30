@@ -26,6 +26,9 @@ const uint32_t LZ4S_MAX_HEADER_SIZE = 4 + 2 + 8 + 4 + 1;
 const uint32_t LZ4S_MIN_STREAM_BUFSIZE = (1024 + 64) * 1024;
 const uint32_t LZ4S_CACHELINE = 64;
 
+const uint32_t LZ4MT_SRC_BITS_INCOMPRESSIBLE_MASK = 1U << 31;
+const uint32_t LZ4MT_SRC_BITS_SIZE_MASK = ~LZ4MT_SRC_BITS_INCOMPRESSIBLE_MASK;
+
 typedef std::unique_ptr<Lz4Mt::MemPool::Buffer> BufferPtr;
 
 int getBlockSize(int bdBlockMaximumSize) {
@@ -44,6 +47,23 @@ bool isMagicNumber(uint32_t magic) {
 bool isSkippableMagicNumber(uint32_t magic) {
 	return magic >= LZ4S_MAGICNUMBER_SKIPPABLE_MIN
 		&& magic <= LZ4S_MAGICNUMBER_SKIPPABLE_MAX;
+}
+
+bool isEos(uint32_t srcBits) {
+	return LZ4S_EOS == srcBits;
+}
+
+bool isIncompless(uint32_t srcBits) {
+	return 0 != (srcBits & LZ4MT_SRC_BITS_INCOMPRESSIBLE_MASK);
+}
+
+template<typename T>
+uint32_t makeIncompless(T size) {
+	return size | static_cast<T>(LZ4MT_SRC_BITS_INCOMPRESSIBLE_MASK);
+}
+
+int getSrcSize(uint32_t srcBits) {
+	return static_cast<int>(srcBits & LZ4MT_SRC_BITS_SIZE_MASK);
 }
 
 char flgToChar(const Lz4MtFlg& flg) {
@@ -394,9 +414,7 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 	assert(sd);
 
 	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
-	const auto nBlockSize        = 4;
 	const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
-	const auto cIncompressible   = 1 << (nBlockSize * 8 - 1);
 	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 
 	Context ctx_(lz4MtContext);
@@ -466,7 +484,7 @@ lz4mtCompressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescri
 				ws.ptr		= dstBuf;
 			} else {
 				ws.bytes	= inSize;
-				ws.header	= inSize | cIncompressible;
+				ws.header	= makeIncompless(inSize);
 				ws.ptr		= in_start;
 			}
 			return ws;
@@ -515,9 +533,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 	}
 
 	const auto nBlockMaximumSize = getBlockSize(sd->bd.blockMaximumSize);
-	const auto nBlockSize        = 4;
 	const auto nBlockCheckSum    = sd->flg.blockChecksum ? 4 : 0;
-	const auto cIncompressible   = 1 << (nBlockSize * 8 - 1);
 	const bool streamChecksum    = 0 != sd->flg.streamChecksum;
 	const bool singleThread      = 0 != (ctx->mode() & LZ4MT_MODE_SEQUENTIAL);
 	const auto nConcurrency      = Lz4Mt::getHardwareConcurrency();
@@ -531,7 +547,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 
 	const auto f =
 		[&futures, &dstBufferPool, &xxhStream
-		 , ctx, nBlockCheckSum, streamChecksum, launch, cIncompressible
+		 , ctx, nBlockCheckSum, streamChecksum, launch
 		 ]
 		(int i, Lz4Mt::MemPool::Buffer* srcRawPtr, int srcSize)
 	{
@@ -571,7 +587,7 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		}
 
 		if(incompressible) {
-			ctx->writeU32(cSize | cIncompressible);
+			ctx->writeU32(makeIncompless(cSize));
 			ctx->writeBin(srcPtr, srcSize);
 		} else {
 			ctx->writeU32(cSize);
@@ -755,15 +771,13 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					continue;
 				}
 
-				if(LZ4S_EOS == srcBits) {
+				if(isEos(srcBits)) {
 					eos = true;
 					continue;
 				}
 
-				const auto incompMask     = (1 << 31);
-				const bool incompressible = 0 != (srcBits & incompMask);
 				{
-					const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
+					const auto srcSize = getSrcSize(srcBits);
 
 					if(srcSize > nBlockMaximumSize) {
 						quit = true;
@@ -798,7 +812,8 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 
 				int decodedBytes = 0;
 
-				if(incompressible) {
+				const bool incompress = isIncompless(srcBits);
+				if(incompress) {
 					if(! ctx->writeBin(src->data(), static_cast<int>(src->size()))) {
 						quit = true;
 						ctx->setResult(LZ4MT_RESULT_CANNOT_WRITE_DATA_BLOCK);
@@ -951,15 +966,12 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					continue;
 				}
 
-				if(LZ4S_EOS == srcBits) {
+				if(isEos(srcBits)) {
 					eos = true;
 					continue;
 				}
 
-				const auto incompMask     = (1 << 31);
-				const bool incompressible = 0 != (srcBits & incompMask);
-				const auto srcSize        = static_cast<int>(srcBits & ~incompMask);
-
+				const auto srcSize = getSrcSize(srcBits);
 				if(srcSize > nBlockMaximumSize) {
 					quit = true;
 					ctx->setResult(LZ4MT_RESULT_INVALID_BLOCK_SIZE);
@@ -982,12 +994,13 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 					continue;
 				}
 
+				const bool incompress = isIncompless(srcBits);
 				if(singleThread) {
-					f(0, src.release(), incompressible, blockCheckSum);
+					f(0, src.release(), incompress, blockCheckSum);
 				} else {
 					futures.emplace_back(std::async(
 						  launch
-						, f, i, src.release(), incompressible, blockCheckSum
+						, f, i, src.release(), incompress, blockCheckSum
 					));
 				}
 			}
