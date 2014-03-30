@@ -72,7 +72,7 @@ MemPool::Buffer::~Buffer() {
 	callback();
 }
 
-char* MemPool::Buffer::data() {
+char* MemPool::Buffer::data() const {
 	return ptr;
 }
 

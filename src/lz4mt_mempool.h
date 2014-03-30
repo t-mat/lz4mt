@@ -19,7 +19,7 @@ public:
 	public:
 		Buffer(char* ptr, size_t contentSize, Callback callback);
 		~Buffer();
-		char* data();
+		char* data() const;
 		size_t size() const;
 		void resize(size_t contentSize);
 
