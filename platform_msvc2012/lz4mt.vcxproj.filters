@@ -22,6 +22,7 @@
     <ClCompile Include="..\src\lz4mt_xxh32.cpp" />
     <ClCompile Include="..\src\lz4mt_mempool.cpp" />
     <ClCompile Include="..\src\lz4mt_compat.cpp" />
+    <ClCompile Include="..\src\lz4mt_result.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\lz4\lz4.h">
