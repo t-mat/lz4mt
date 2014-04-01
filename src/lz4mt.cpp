@@ -295,54 +295,40 @@ struct Params {
 class BlockDependentCompressor {
 public:
 	BlockDependentCompressor(int compressionLevel, const char* inputBuffer)
-		: lz4Ctx(nullptr)
-		, initFunction()
-		, freeFunction()
-		, compressFunction()
-		, translateFunction()
+		: isHc(compressionLevel >= 3)
+		, lz4Ctx(new char[
+			isHc ? LZ4_sizeofStreamStateHC()
+			     : LZ4_sizeofStreamState()
+		  ])
+		, compressFunction(
+			isHc ? LZ4_compressHC_limitedOutput_continue
+			     : LZ4_compress_limitedOutput_continue
+		  )
+		, translateFunction(
+			isHc ? LZ4_slideInputBufferHC
+			     : LZ4_slideInputBuffer
+		)
 	{
-		const bool isHc = (compressionLevel >= 3);
 		if(isHc) {
-			initFunction      = LZ4_createHC;
-			compressFunction  = LZ4_compressHC_limitedOutput_continue;
-			translateFunction = LZ4_slideInputBufferHC;
-			freeFunction      = LZ4_freeHC;
+			LZ4_resetStreamStateHC(lz4Ctx.get(), inputBuffer);
 		} else {
-			initFunction      = LZ4_create;
-			compressFunction  = LZ4_compress_limitedOutput_continue;
-			translateFunction = LZ4_slideInputBuffer;
-			freeFunction      = LZ4_free;
-		}
-
-		lz4Ctx = initFunction(inputBuffer);
-	}
-
-private:
-	BlockDependentCompressor(const BlockDependentCompressor& bdc);
-	BlockDependentCompressor& operator=(const BlockDependentCompressor& bdc);
-
-public:
-	~BlockDependentCompressor() {
-		if(lz4Ctx) {
-			freeFunction(lz4Ctx);
-			lz4Ctx = nullptr;
+			LZ4_resetStreamState(lz4Ctx.get(), inputBuffer);
 		}
 	}
 
 	int compress(const char* source, char* dest, int inputSize, int maxOutputSize) {
-		return compressFunction(lz4Ctx, source, dest, inputSize, maxOutputSize);
+		return compressFunction(lz4Ctx.get(), source, dest, inputSize, maxOutputSize);
 	}
 
 	char* translate() {
-		return translateFunction(lz4Ctx);
+		return translateFunction(lz4Ctx.get());
 	}
 
 private:
-	void* lz4Ctx;
-	std::function<void*(const char*)> initFunction;
-	std::function<int(void*)> freeFunction;
-	std::function<int(void*, const char*, char*, int, int)> compressFunction;
-	std::function<char*(void*)> translateFunction;
+	const bool isHc;
+	const std::unique_ptr<char[]> lz4Ctx;
+	const std::function<int(void*, const char*, char*, int, int)> compressFunction;
+	const std::function<char*(void*)> translateFunction;
 };
 
 
