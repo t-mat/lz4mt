@@ -354,7 +354,7 @@ makeHeader(Ctx& ctx, const Lz4MtStreamDescriptor* sd)
 
 	const auto r = validateStreamDescriptor(sd);
 	if(LZ4MT_RESULT_OK != r) {
-		return ctx.setResult(r);
+		return ctx.quit(r);
 	}
 	p += storeU32(p, LZ4S_MAGICNUMBER);
 
@@ -376,7 +376,7 @@ makeHeader(Ctx& ctx, const Lz4MtStreamDescriptor* sd)
 
 	const auto writeSize = static_cast<int>(p - d);
 	if(writeSize != ctx.write(d, writeSize)) {
-		return ctx.setResult(LZ4MT_RESULT_CANNOT_WRITE_HEADER);
+		return ctx.quit(LZ4MT_RESULT_CANNOT_WRITE_HEADER);
 	}
 
 	return LZ4MT_RESULT_OK;
@@ -384,19 +384,11 @@ makeHeader(Ctx& ctx, const Lz4MtStreamDescriptor* sd)
 
 
 Lz4MtResult
-compress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+compress(Ctx& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
 {
-	const Params params(lz4MtContext, sd);
-	Ctx ctx(lz4MtContext);
-
-	if(LZ4MT_RESULT_OK != makeHeader(ctx, sd)) {
-		return ctx.result();
-	}
-
 	Lz4Mt::MemPool srcBufferPool(params.nBlockMaximumSize, params.nPool);
 	Lz4Mt::MemPool dstBufferPool(params.nBlockMaximumSize, params.nPool);
 	std::vector<std::future<void>> futures;
-	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
 
 	const auto f =
 		[&futures, &dstBufferPool, &xxhStream, &params, &ctx]
@@ -475,34 +467,13 @@ compress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		e.wait();
 	}
 
-	if(!ctx.writeU32(LZ4S_EOS)) {
-		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
-	}
-
-	if(params.streamChecksum) {
-		const auto digest = xxhStream.digest();
-		if(!ctx.writeU32(digest)) {
-			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
-		}
-	}
-
 	return LZ4MT_RESULT_OK;
 }
 
 
 Lz4MtResult
-compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
+compressBlockDependency(Ctx& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
 {
-	assert(lz4MtContext);
-	assert(sd);
-
-	const Params params(lz4MtContext, sd);
-	Ctx ctx(lz4MtContext);
-
-	if(LZ4MT_RESULT_OK != makeHeader(ctx, sd)) {
-		return ctx.result();
-	}
-
 	const auto inputBufferSize = [&]() -> size_t {
 		// NOTE for "-> size_t" :
 		//		It's a workaround for g++-4.6's strange warning.
@@ -523,9 +494,7 @@ compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor*
 
 	auto* in_start = srcBuf;
 
-	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
-
-	BlockDependentCompressor bdc(lz4MtContext->compressionLevel, srcBuf);
+	BlockDependentCompressor bdc(ctx.compressionLevel(), srcBuf);
 
 	for(;;) {
 		if((in_start + params.nBlockMaximumSize) > srcEnd) {
@@ -577,17 +546,6 @@ compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor*
 		}
 
 		in_start += inSize;
-	}
-
-	if(!ctx.writeU32(LZ4S_EOS)) {
-		return LZ4MT_RESULT_CANNOT_WRITE_EOS;
-	}
-
-	if(params.streamChecksum) {
-		const auto digest = xxhStream.digest();
-		if(!ctx.writeU32(digest)) {
-			return LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM;
-		}
 	}
 
 	return LZ4MT_RESULT_OK;
@@ -957,11 +915,37 @@ lz4mtCompress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 	assert(lz4MtContext);
 	assert(sd);
 
-	if(sd->flg.blockIndependence) {
-		return compress(lz4MtContext, sd);
-	} else {
-		return compressBlockDependency(lz4MtContext, sd);
+	const Params params(lz4MtContext, sd);
+	Ctx ctx(lz4MtContext);
+
+	makeHeader(ctx, sd);
+	if(LZ4MT_RESULT_OK != ctx.result()) {
+		return ctx.result();
 	}
+
+	Lz4Mt::Xxh32 xxhStream(LZ4S_CHECKSUM_SEED);
+
+	if(sd->flg.blockIndependence) {
+		compress(ctx, params, xxhStream);
+	} else {
+		compressBlockDependency(ctx, params, xxhStream);
+	}
+	if(LZ4MT_RESULT_OK != ctx.result()) {
+		return ctx.result();
+	}
+
+	if(!ctx.writeU32(LZ4S_EOS)) {
+		return ctx.quit(LZ4MT_RESULT_CANNOT_WRITE_EOS);
+	}
+
+	if(params.streamChecksum) {
+		const auto digest = xxhStream.digest();
+		if(!ctx.writeU32(digest)) {
+			return ctx.quit(LZ4MT_RESULT_CANNOT_WRITE_STREAM_CHECKSUM);
+		}
+	}
+
+	return LZ4MT_RESULT_OK;
 }
 
 
