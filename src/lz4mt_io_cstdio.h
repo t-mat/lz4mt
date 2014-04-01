@@ -25,8 +25,8 @@ std::string getNullFilename();
 bool isAttyStdin();
 bool isAttyStdout();
 bool compareFilename(const std::string& lhs, const std::string& rhs);
-bool hasExtension(const std::string filename, const std::string& extension);
-std::string removeExtension(const std::string filename);
+bool hasExtension(const std::string& filename, const std::string& extension);
+std::string removeExtension(const std::string& filename);
 
 }}
 
