@@ -205,17 +205,9 @@ public:
 	}
 
 	bool writeU32(uint32_t v) {
-		if(error()) {
-			return false;
-		}
-
 		char d[sizeof(v)];
 		storeU32(d, v);
-		if(sizeof(d) != lz4MtContext->write(lz4MtContext, d, sizeof(d))) {
-			setResult(LZ4MT_RESULT_ERROR);
-			return false;
-		}
-		return true;
+		return writeBin(d, sizeof(d));
 	}
 
 	bool writeBin(const void* ptr, int size) {
