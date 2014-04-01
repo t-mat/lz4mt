@@ -212,7 +212,7 @@ bool compareFilename(const std::string& lhs, const std::string& rhs) {
 #endif
 }
 
-bool hasExtension(const std::string filename, const std::string& extension) {
+bool hasExtension(const std::string& filename, const std::string& extension) {
 	const auto pos = filename.find_last_of('.');
 	if(std::string::npos == pos) {
 		return false;
@@ -221,7 +221,7 @@ bool hasExtension(const std::string filename, const std::string& extension) {
 	return compareFilename(ext, extension);
 }
 
-std::string removeExtension(const std::string filename) {
+std::string removeExtension(const std::string& filename) {
 	const auto o = filename.find_last_of('.');
 	return filename.substr(0, o);
 }
