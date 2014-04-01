@@ -361,7 +361,7 @@ private:
 };
 
 
-static Lz4MtResult
+Lz4MtResult
 makeHeader(Context* ctx, const Lz4MtStreamDescriptor* sd)
 {
 	char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
