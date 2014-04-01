@@ -271,8 +271,7 @@ private:
 };
 
 
-class Params {
-public:
+struct Params {
 	Params(const Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 		: nBlockMaximumSize	 (getBlockSize(sd->bd.blockMaximumSize))
 		, blockCheckSumBytes (sd->flg.blockChecksum ? 4 : 0)
@@ -283,19 +282,13 @@ public:
 		, launch			 (singleThread ? Lz4Mt::launch::deferred : std::launch::async)
 	{}
 
-private:
-	// TODO : We should use "= delete"
-	Params(const Params&);
-	Params& operator=(const Params&);
-
-public:
-	const int nBlockMaximumSize;
-	const int blockCheckSumBytes;
-	const bool streamChecksum;
-	const bool blockIndependence;
-	const bool singleThread;
-	const unsigned nPool;
-	const Lz4Mt::launch::Type launch;
+	int nBlockMaximumSize;
+	int blockCheckSumBytes;
+	bool streamChecksum;
+	bool blockIndependence;
+	bool singleThread;
+	unsigned nPool;
+	Lz4Mt::launch::Type launch;
 };
 
 
