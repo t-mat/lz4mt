@@ -160,9 +160,9 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 	return LZ4MT_RESULT_OK;
 }
 
-class Context {
+class Ctx {
 public:
-	Context(Lz4MtContext* ctx)
+	Ctx(Lz4MtContext* ctx)
 		: ctx(ctx)
 		, mutResult()
 		, atmQuit(false)
@@ -362,7 +362,7 @@ private:
 
 
 Lz4MtResult
-makeHeader(Context& ctx, const Lz4MtStreamDescriptor* sd)
+makeHeader(Ctx& ctx, const Lz4MtStreamDescriptor* sd)
 {
 	char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
 	auto p = &d[0];
@@ -402,7 +402,7 @@ Lz4MtResult
 compress(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor* sd)
 {
 	const Params params(lz4MtContext, sd);
-	Context ctx(lz4MtContext);
+	Ctx ctx(lz4MtContext);
 
 	if(LZ4MT_RESULT_OK != makeHeader(ctx, sd)) {
 		return ctx.result();
@@ -512,7 +512,7 @@ compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor*
 	assert(sd);
 
 	const Params params(lz4MtContext, sd);
-	Context ctx(lz4MtContext);
+	Ctx ctx(lz4MtContext);
 
 	if(LZ4MT_RESULT_OK != makeHeader(ctx, sd)) {
 		return ctx.result();
@@ -610,7 +610,7 @@ compressBlockDependency(Lz4MtContext* lz4MtContext, const Lz4MtStreamDescriptor*
 
 
 Lz4MtResult
-readHeader(Context& ctx, Lz4MtStreamDescriptor* sd)
+readHeader(Ctx& ctx, Lz4MtStreamDescriptor* sd)
 {
 	char d[LZ4S_MAX_HEADER_SIZE] = { 0 };
 	auto* p = d;
@@ -662,7 +662,7 @@ readHeader(Context& ctx, Lz4MtStreamDescriptor* sd)
 
 
 bool
-decompress(Context& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
+decompress(Ctx& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
 {
 	Lz4Mt::MemPool srcBufferPool(params.nBlockMaximumSize, params.nPool);
 	Lz4Mt::MemPool dstBufferPool(params.nBlockMaximumSize, params.nPool);
@@ -806,7 +806,7 @@ decompress(Context& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
 
 
 bool
-decompressBlockDependency(Context& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
+decompressBlockDependency(Ctx& ctx, const Params& params, Lz4Mt::Xxh32& xxhStream)
 {
 	const size_t prefix64k = 64 * 1024;
 
@@ -986,7 +986,7 @@ lz4mtDecompress(Lz4MtContext* lz4MtContext, Lz4MtStreamDescriptor* sd)
 	assert(lz4MtContext);
 	assert(sd);
 
-	Context ctx(lz4MtContext);
+	Ctx ctx(lz4MtContext);
 
 	bool magicNumberRecognized = false;
 
