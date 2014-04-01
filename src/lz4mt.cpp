@@ -162,20 +162,20 @@ validateStreamDescriptor(const Lz4MtStreamDescriptor* sd) {
 
 class Ctx {
 public:
-	Ctx(Lz4MtContext* ctx)
-		: ctx(ctx)
+	Ctx(Lz4MtContext* lz4MtContext)
+		: lz4MtContext(lz4MtContext)
 		, mutResult()
 		, atmQuit(false)
 	{}
 
 	bool error() const {
 		Lock lock(mutResult);
-		return LZ4MT_RESULT_OK != ctx->result;
+		return LZ4MT_RESULT_OK != lz4MtContext->result;
 	}
 
 	Lz4MtResult setResult(Lz4MtResult result) {
 		Lock lock(mutResult);
-		auto& r = ctx->result;
+		auto& r = lz4MtContext->result;
 		if(LZ4MT_RESULT_OK == r || LZ4MT_RESULT_ERROR == r) {
 			r = result;
 		}
@@ -184,11 +184,11 @@ public:
 
 	Lz4MtResult result() {
 		Lock lock(mutResult);
-		return ctx->result;
+		return lz4MtContext->result;
 	}
 
 	int compressionLevel() const {
-		return ctx->compressionLevel;
+		return lz4MtContext->compressionLevel;
 	}
 
 	uint32_t readU32() {
@@ -197,7 +197,7 @@ public:
 		}
 
 		char d[sizeof(uint32_t)];
-		if(sizeof(d) != ctx->read(ctx, d, sizeof(d))) {
+		if(sizeof(d) != lz4MtContext->read(lz4MtContext, d, sizeof(d))) {
 			setResult(LZ4MT_RESULT_ERROR);
 			return 0;
 		}
@@ -211,7 +211,7 @@ public:
 
 		char d[sizeof(v)];
 		storeU32(d, v);
-		if(sizeof(d) != ctx->write(ctx, d, sizeof(d))) {
+		if(sizeof(d) != lz4MtContext->write(lz4MtContext, d, sizeof(d))) {
 			setResult(LZ4MT_RESULT_ERROR);
 			return false;
 		}
@@ -222,7 +222,7 @@ public:
 		if(error()) {
 			return false;
 		}
-		if(size != ctx->write(ctx, ptr, size)) {
+		if(size != lz4MtContext->write(lz4MtContext, ptr, size)) {
 			setResult(LZ4MT_RESULT_ERROR);
 			return false;
 		}
@@ -230,35 +230,35 @@ public:
 	}
 
 	Lz4MtMode mode() const {
-		return ctx->mode;
+		return lz4MtContext->mode;
 	}
 
 	int read(void* dst, int dstSize) {
-		return ctx->read(ctx, dst, dstSize);
+		return lz4MtContext->read(lz4MtContext, dst, dstSize);
 	}
 
 	int readSeek(int offset) {
-		return ctx->readSeek(ctx, offset);
+		return lz4MtContext->readSeek(lz4MtContext, offset);
 	}
 
 	int readEof() {
-		return ctx->readEof(ctx);
+		return lz4MtContext->readEof(lz4MtContext);
 	}
 
 	int readSkippable(uint32_t magicNumber, size_t size) {
-		return ctx->readSkippable(ctx, magicNumber, size);
+		return lz4MtContext->readSkippable(lz4MtContext, magicNumber, size);
 	}
 
 	int write(const void* src, int srcSize) {
-		return ctx->write(ctx, src, srcSize);
+		return lz4MtContext->write(lz4MtContext, src, srcSize);
 	}
 
 	int compress(const char* src, char* dst, int isize, int maxOutputSize) {
-		return ctx->compress(src, dst, isize, maxOutputSize, ctx->compressionLevel);
+		return lz4MtContext->compress(src, dst, isize, maxOutputSize, lz4MtContext->compressionLevel);
 	}
 
 	int decompress(const char* src, char* dst, int isize, int maxOutputSize) {
-		return ctx->decompress(src, dst, isize, maxOutputSize);
+		return lz4MtContext->decompress(src, dst, isize, maxOutputSize);
 	}
 
 	Lz4MtResult quit(Lz4MtResult result) {
@@ -273,7 +273,7 @@ public:
 
 private:
 	typedef std::unique_lock<std::mutex> Lock;
-	Lz4MtContext* ctx;
+	Lz4MtContext* lz4MtContext;
 	mutable std::mutex mutResult;
 	std::atomic<bool> atmQuit;
 };
